@@ -1,0 +1,14 @@
+{application, flowcompiler,
+ [
+  {description, "Flow Compiler"},
+  {vsn, "0.1"},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  lager,
+		  dobby_oflib,
+		  simple_ne
+                 ]},
+  {env, []}
+ ]}.
