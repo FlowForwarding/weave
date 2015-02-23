@@ -41,6 +41,7 @@ dialyzer: compile
 
 dev: compile
 	erl -pa ebin -pa deps/*/ebin deps/loom/simple_ne/apps/*/ebin \
+	-config deps/loom/simple_ne/rel/files/sys.config \
 	-eval "{ok, _} = application:ensure_all_started(flowcompiler)"
 
 compile test clean: rebar
