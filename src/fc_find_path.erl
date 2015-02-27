@@ -13,6 +13,7 @@ vertices_edges_path(Graph, Ep1, Ep2) ->
     %% TODO: check type of edges, instead of blindly using digraph functions.
     %% This will become a problem once we have the higher layers in the digraph.
     Path = digraph:get_path(Graph, Ep1, Ep2),
+    Path =/= false orelse error(no_path_found, [Graph, Ep1, Ep2]),
     vertices_edges(Path, Graph).
 
 vertices_edges([Id], Graph) ->
