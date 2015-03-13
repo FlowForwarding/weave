@@ -1,14 +1,18 @@
 -module(fc_find_path).
 
+%% For the type flow_path().
+-include_lib("dobby_oflib/include/dobby_oflib.hrl").
+
 -export([path_flow_rules/2]).
 
+%% TODO: adapt to actual protocol version
+-define(OF_VERSION, 4).
+
+-spec path_flow_rules(binary(), binary()) -> flow_path().
 path_flow_rules(Ep1, Ep2) ->
     {ok, Graph} = dobby_oflib:get_path(Ep1, Ep2),
     VerticesEdges = vertices_edges_path(Graph, Ep1, Ep2),
-    FlowRules = flow_rules(VerticesEdges, Graph),
-    [{DpId, lists:append([TheFlowRules || {TheDpId, TheFlowRules} <- FlowRules,
-					  TheDpId =:= DpId])}
-     || DpId <- lists:usort(lists:map(fun({DpId, _}) -> DpId end, FlowRules))].
+    convert_return_value(flow_rules(VerticesEdges, Graph)).
 
 vertices_edges_path(Graph, Ep1, Ep2) ->
     Path = digraph:get_path(Graph, Ep1, Ep2),
@@ -16,42 +20,60 @@ vertices_edges_path(Graph, Ep1, Ep2) ->
     vertices_edges(Path, Graph).
 
 vertices_edges([Id], Graph) ->
-    {Id, #{<<"type">> := Type} = Metadata} = digraph:vertex(Graph, Id),
+    {Id, #{<<"type">> := #{value := Type}} = Metadata} = digraph:vertex(Graph, Id),
     [{Id, binary_to_atom(Type, utf8), Metadata}];
 vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
-    {Id1, #{<<"type">> := Type1} = Metadata1} = digraph:vertex(Graph, Id1),
+    {Id1, #{<<"type">> := #{value := Type1}} = Metadata1} = digraph:vertex(Graph, Id1),
     {Id2, #{}} = digraph:vertex(Graph, Id2),
     %% TODO: is there a nicer way to get the edge between Id1 and Id2?
     [Edge] = edges_between(Id1, Id2, Graph),
-    {Edge, Id1, Id2, #{<<"type">> := EdgeType}} = digraph:edge(Graph, Edge),
+    {Edge, Id1, Id2, #{<<"type">> := #{value := EdgeType}}} = digraph:edge(Graph, Edge),
     [{Id1, binary_to_atom(Type1, utf8), Metadata1}, binary_to_atom(EdgeType, utf8)]
 	++ vertices_edges(Tail, Graph).
 
-flow_rules([{_, endpoint, _}], _Graph) ->
+-spec flow_rules([_], digraph:graph()) -> flow_path().
+flow_rules(Path, Graph) ->
+    flow_rules(Path, Graph, #{}).
+
+flow_rules([{_, endpoint, _}], _Graph, FlowRulesMap) ->
     %% Nothing more to do.
-    [];
-flow_rules([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph) ->
-    flow_rules(Tail, Graph);
-flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph) ->
-    flow_rules(Tail, Graph);
-flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph) ->
-    flow_rules(Tail, Graph);
+    FlowRulesMap;
+flow_rules([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRulesMap) ->
+    flow_rules(Tail, Graph, FlowRulesMap);
+flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRulesMap) ->
+    flow_rules(Tail, Graph, FlowRulesMap);
+flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRulesMap) ->
+    flow_rules(Tail, Graph, FlowRulesMap);
 flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
-	    port_of | [{Port2, of_port, _} | _] = Tail], Graph) ->
+	    port_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRulesMap) ->
     %% Add bidirectional flow rules.
-    SwitchId = binary_to_list(maps:get(<<"datapath_id">>, SwitchMetadata)),
+    SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
+    {?OF_VERSION, ExistingRules} = maps:get(SwitchId, FlowRulesMap, {?OF_VERSION, []}),
     Rule1 = {
       [{in_port, fc_utils:id_to_port_no(Port1)}],
       [{apply_actions, [{output, fc_utils:id_to_port_no(Port2), no_buffer}]}],
-      []},
+      [{table_id, 0},
+       {cookie, unique_cookie()}]},
     Rule2 = {
       [{in_port, fc_utils:id_to_port_no(Port2)}],
       [{apply_actions, [{output, fc_utils:id_to_port_no(Port1), no_buffer}]}],
-      []},
-    [{SwitchId, [Rule1, Rule2]}]
-	++ flow_rules(Tail, Graph).
+      [{table_id, 0},
+       {cookie, unique_cookie()}]},
+    NewFlowRulesMap = maps:put(SwitchId, {?OF_VERSION, [Rule1, Rule2] ++ ExistingRules}, FlowRulesMap),
+    flow_rules(Tail, Graph, NewFlowRulesMap).
 
 edges_between(Id1, Id2, Graph) ->
     OutEdges1 = digraph:out_edges(Graph, Id1),
     InEdges2 = digraph:in_edges(Graph, Id2),
     [Edge || Edge <- OutEdges1, lists:member(Edge, InEdges2)].
+
+%% @doc Convert flow paths to what `dobby_oflib:publish_new_flow'
+%% expects.
+convert_return_value(FlowRules) ->
+    %% It expects a list of tuples of the form {Dpid, {OFVersion, FlowMods}}.
+    maps:to_list(FlowRules).
+
+unique_cookie() ->
+    {A,B,C} = erlang:now(),
+    N = (A * 1000000 + B) * 1000000 + C,
+    <<N:64>>.
