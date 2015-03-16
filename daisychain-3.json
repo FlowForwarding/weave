@@ -1,0 +1,144 @@
+[
+    {
+	"identifier": "EP1",
+	"metadata": { "type": "endpoint" }
+    },
+    {
+	"identifier": "00:00:00:00:00:01:00:01",
+	"metadata": {
+	    "type": "of_switch",
+	    "datapath_id": "00:00:00:00:00:01:00:01"
+	}
+    },
+    {
+	"identifier": "OFS1-table-0",
+	"metadata": {
+	    "type": "of_flow_table",
+	    "table_no": 0
+	}
+    },
+    {
+	"identifier": "OFS1/OFP1",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"identifier": "OFS1/OFP2",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"link": ["EP1", "OFS1/OFP1"],
+	"metadata": { "type": "connected_to" }
+    },
+    {
+	"link": ["OFS1/OFP1", "00:00:00:00:00:01:00:01"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"link": ["OFS1/OFP2", "00:00:00:00:00:01:00:01"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"identifier": "00:00:00:00:00:01:00:02",
+	"metadata": {
+	    "type": "of_switch",
+	    "datapath_id": "00:00:00:00:00:01:00:02"
+	}
+    },
+    {
+	"identifier": "OFS2-table-0",
+	"metadata": {
+	    "type": "of_flow_table",
+	    "table_no": 0
+	}
+    },
+    {
+	"identifier": "OFS2/OFP1",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"identifier": "OFS2/OFP2",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"identifier": "OFS2/OFP3",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"link": ["OFS2/OFP1", "00:00:00:00:00:01:00:02"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"link": ["OFS2/OFP2", "00:00:00:00:00:01:00:02"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"link": ["OFS2/OFP3", "00:00:00:00:00:01:00:02"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"link": ["OFS1/OFP2", "OFS2/OFP2"],
+	"metadata": { "type": "connected_to" }
+    },
+    {
+	"identifier": "EP2",
+	"metadata": { "type": "endpoint" }
+    },
+    {
+	"link": ["EP2", "OFS2/OFP1"],
+	"metadata": { "type": "connected_to" }
+    },
+    {
+	"identifier": "00:00:00:00:00:01:00:03",
+	"metadata": {
+	    "type": "of_switch",
+	    "datapath_id": "00:00:00:00:00:01:00:03"
+	}
+    },
+    {
+	"identifier": "OFS3-table-0",
+	"metadata": {
+	    "type": "of_flow_table",
+	    "table_no": 0
+	}
+    },
+    {
+	"identifier": "OFS3/OFP1",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"identifier": "OFS3/OFP2",
+	"metadata": { "type": "of_port" }
+    },
+    {
+	"link": ["OFS3/OFP1", "00:00:00:00:00:01:00:03"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"link": ["OFS3/OFP2", "00:00:00:00:00:01:00:03"],
+	"metadata": { "type": "port_of" }
+    },
+    {
+	"link": ["OFS2/OFP3", "OFS3/OFP2"],
+	"metadata": { "type": "connected_to" }
+    },
+    {
+	"identifier": "EP3",
+	"metadata": { "type": "endpoint" }
+    },
+    {
+	"link": ["EP3", "OFS3/OFP1"],
+	"metadata": { "type": "connected_to" }
+    },
+    {
+        "link": ["00:00:00:00:00:01:00:01", "OFS1-table-0"],
+        "metadata": { "type": "of_resource" }
+    },
+    {
+        "link": ["00:00:00:00:00:01:00:02", "OFS2-table-0"],
+        "metadata": { "type": "of_resource" }
+    },
+    {
+        "link": ["00:00:00:00:00:01:00:03", "OFS3-table-0"],
+        "metadata": { "type": "of_resource" }
+    }
+]
