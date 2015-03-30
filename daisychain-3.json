@@ -1,7 +1,7 @@
 [
     {
 	"identifier": "EP1",
-	"metadata": { "type": "endpoint" }
+	"metadata": { "type": "endpoint", "ip": "10.0.0.1" }
     },
     {
 	"identifier": "00:00:00:00:00:01:00:01",
@@ -81,7 +81,7 @@
     },
     {
 	"identifier": "EP2",
-	"metadata": { "type": "endpoint" }
+	"metadata": { "type": "endpoint", "ip": "10.0.0.2" }
     },
     {
 	"link": ["EP2", "OFS2/OFP1"],
@@ -123,7 +123,7 @@
     },
     {
 	"identifier": "EP3",
-	"metadata": { "type": "endpoint" }
+	"metadata": { "type": "endpoint", "ip": "10.0.0.3" }
     },
     {
 	"link": ["EP3", "OFS3/OFP1"],
