@@ -2,6 +2,15 @@
 
 -export([setup_flow/2]).
 
+%% @doc Set up a net flow from `Source' to `Destination'.
+%%
+%% Determine what flow rules are required to route IP packets from
+%% `Source' to `Destination' and back.  Install the flow rules in the
+%% switches, and publish them in Dobby.
+%%
+%% `Source' and `Destination' are binaries that name endpoints present
+%% in Dobby.
+-spec setup_flow(binary(), binary()) -> _.
 setup_flow(Source, Destination)
   when is_binary(Source), is_binary(Destination) ->
     FlowRules = fc_find_path:path_flow_rules(Source, Destination),
