@@ -1,6 +1,8 @@
 -module(fc_find_path).
 
-%% For the type flow_path().
+%% For the type dby_identifier().
+-include_lib("dobby_clib/include/dobby.hrl").
+%% For the type datapath_flow_mod().
 -include_lib("dobby_oflib/include/dobby_oflib.hrl").
 
 -export([path_flow_rules/2]).
@@ -8,7 +10,7 @@
 %% TODO: adapt to actual protocol version
 -define(OF_VERSION, 4).
 
--spec path_flow_rules(binary(), binary()) -> flow_path().
+-spec path_flow_rules(binary(), binary()) -> [datapath_flow_mod()].
 path_flow_rules(Ep1, Ep2) ->
     {ok, Graph} = dobby_oflib:get_path(Ep1, Ep2),
     VerticesEdges = vertices_edges_path(Graph, Ep1, Ep2),
@@ -35,7 +37,7 @@ vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
     [{Id1, binary_to_atom(Type1, utf8), Metadata1}, binary_to_atom(EdgeType, utf8)]
 	++ vertices_edges(Tail, Graph).
 
--spec flow_rules([_], digraph:graph(), inet:ip4_address(), inet:ip4_address()) -> flow_path().
+-spec flow_rules([_], digraph:graph(), inet:ip4_address(), inet:ip4_address()) -> [datapath_flow_mod()].
 flow_rules(Path, Graph, Ip1, Ip2) ->
     flow_rules(Path, Graph, #{}, Ip1, Ip2).
 
