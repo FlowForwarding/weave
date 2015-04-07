@@ -66,6 +66,17 @@ main() ->
             ok
     end,
 
+    io:format("Sending flow rules:\n"),
+    lists:foreach(
+      fun({Dpid, _, {Matches, Instr, Opts}}) ->
+              io:format("~23s: Match: ~lp\n"
+                        "~23s  Instr: ~lp\n"
+                        "~23s  Opts:  ~lp\n",
+                        [Dpid, Matches,
+                         "", Instr,
+                         "", Opts])
+      end, FlowRules),
+
     lists:foreach(fun send_flow_rules/1, FlowRules),
     FlowModIds =
         lists:map(
