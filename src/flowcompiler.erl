@@ -3,6 +3,8 @@
 -export([setup_flow/2,
          main/0]).
 
+-include_lib("kernel/include/inet.hrl").
+
 %% @doc Set up a net flow from `Source' to `Destination'.
 %%
 %% Determine what flow rules are required to route IP packets from
@@ -35,7 +37,11 @@ send_flow_rules({Dpid, OFVersion, {Matches, Instr, Opts}}) when is_binary(Dpid) 
     ok.
 
 main() ->
-    [JSONFile, SourceS, DestinationS] = init:get_plain_arguments(),
+    [JSONFile, SourceS, DestinationS | SwitchesS] = init:get_plain_arguments(),
+    %% If any switches are specified, don't listen for connections.
+    application:load(of_driver),
+    SwitchesS =:= [] orelse application:set_env(of_driver, listen, false),
+
     {ok, _} = application:ensure_all_started(dobby),
     {ok, _} = application:ensure_all_started(flowcompiler),
     %% Wait for Dobby's Mnesia table.
@@ -56,6 +62,7 @@ main() ->
     %% Ready to find flow rules!
     FlowRules = fc_find_path:path_flow_rules(Source, Destination),
 
+    lists:foreach(fun connect_to_switch/1, SwitchesS),
     %% Now that we know which switches are affected by the flow rules,
     %% ensure that they are connected.
     case lists:foldl(fun wait_for_switch/2, 10, lists:ukeysort(1, FlowRules)) of
@@ -106,3 +113,29 @@ wait_for_switch({Dpid, _, _} = FlowRule, Remaining) ->
             timer:sleep(1000),
             wait_for_switch(FlowRule, Remaining - 1)
     end.
+
+connect_to_switch(SwitchS) ->
+    case string:tokens(SwitchS, ":") of
+        [HostnameOrIP] ->
+            SwitchPort = 6653;
+        [HostnameOrIP, PortS] ->
+            SwitchPort = list_to_integer(PortS)
+    end,
+    case inet:parse_ipv4strict_address(HostnameOrIP) of
+        {ok, SwitchIP} ->
+            ok;
+        {error, _} ->
+            %% If it's not an IP address, it's probably a hostname.
+            case inet:gethostbyname(HostnameOrIP) of
+                {error, E} ->
+                    io:format(standard_error, "Cannot resolve '~s': ~p\n",
+                              [HostnameOrIP, E]),
+                    SwitchIP = invalid,
+                    halt(1);
+                {ok, #hostent{h_addr_list = [SwitchIP | _]}} ->
+                    io:format("Connecting to ~s on ~s:~b...\n",
+                              [HostnameOrIP, inet:ntoa(SwitchIP), SwitchPort])
+            end
+    end,
+    {ok, _} = of_driver:connect(SwitchIP, SwitchPort),
+    ok.
