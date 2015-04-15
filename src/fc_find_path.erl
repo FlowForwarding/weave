@@ -74,33 +74,42 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
     SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
     FromPort1 = {in_port, fc_utils:id_to_port_no(Port1)},
     ToPort2 = {apply_actions, [{output, fc_utils:id_to_port_no(Port2), no_buffer}]},
+    NetmaskBin1 = ip_to_bin(Netmask1),
+    NetmaskBin2 = ip_to_bin(Netmask2),
+    %% The priority of the rule is the length of the shortest netmask.
+    %% TODO: look for guidance in the JSON file.
+    Priority = {priority, min(netmask_length(NetmaskBin1), netmask_length(NetmaskBin2))},
     IpTrafficThere = {
       [FromPort1,
-       {ipv4_src, ip_to_bin(Ip1), ip_to_bin(Netmask1)},
-       {ipv4_dst, ip_to_bin(Ip2), ip_to_bin(Netmask2)}],
+       {ipv4_src, ip_to_bin(Ip1), NetmaskBin1},
+       {ipv4_dst, ip_to_bin(Ip2), NetmaskBin2}],
       [ToPort2],
       [{table_id, 0},
+       Priority,
        {cookie, unique_cookie()}]},
     ArpPacketsThere = {
       [FromPort1,
-       {arp_tpa, ip_to_bin(Ip2), ip_to_bin(Netmask2)}],
+       {arp_tpa, ip_to_bin(Ip2), NetmaskBin2}],
       [ToPort2],
       [{table_id, 0},
+       Priority,
        {cookie, unique_cookie()}]},
     FromPort2 = {in_port, fc_utils:id_to_port_no(Port2)},
     ToPort1 = {apply_actions, [{output, fc_utils:id_to_port_no(Port1), no_buffer}]},
     IpTrafficBack = {
       [FromPort2,
-       {ipv4_src, ip_to_bin(Ip2), ip_to_bin(Netmask2)},
-       {ipv4_dst, ip_to_bin(Ip1), ip_to_bin(Netmask1)}],
+       {ipv4_src, ip_to_bin(Ip2), NetmaskBin2},
+       {ipv4_dst, ip_to_bin(Ip1), NetmaskBin1}],
       [ToPort1],
       [{table_id, 0},
+       Priority,
        {cookie, unique_cookie()}]},
     ArpPacketsBack = {
       [FromPort2,
-       {arp_tpa, ip_to_bin(Ip1), ip_to_bin(Netmask1)}],
+       {arp_tpa, ip_to_bin(Ip1), NetmaskBin1}],
       [ToPort1],
       [{table_id, 0},
+       Priority,
        {cookie, unique_cookie()}]},
     NewRules = [IpTrafficThere, ArpPacketsThere, IpTrafficBack, ArpPacketsBack],
     NewFlowRules = [{SwitchId, ?OF_VERSION, NewRule} || NewRule <- NewRules] ++ FlowRules,
@@ -118,3 +127,14 @@ unique_cookie() ->
 
 ip_to_bin({A,B,C,D}) ->
     <<A:8,B:8,C:8,D:8>>.
+
+netmask_length(NetmaskBin) ->
+    netmask_length(NetmaskBin, 0).
+
+netmask_length(<<>>, Acc) ->
+    Acc;
+netmask_length(<<0:1, _/bits>>, Acc) ->
+    Acc;
+netmask_length(<<1:1, Rest/bits>>, Acc) ->
+    netmask_length(Rest, 1 + Acc).
+
