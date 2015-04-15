@@ -14,11 +14,26 @@
 path_flow_rules(Ep1, Ep2) ->
     {ok, Graph} = dobby_oflib:get_path(Ep1, Ep2),
     VerticesEdges = vertices_edges_path(Graph, Ep1, Ep2),
-    {Ep1, endpoint, #{<<"ip">> := #{value := Ip1Bin}}} = hd(VerticesEdges),
+
+    %% Find IP and possibly netmask for the first endpoint...
+    case VerticesEdges of
+        [{Ep1, endpoint, #{<<"ip">> := #{value := Ip1Bin},
+                           <<"netmask">> := #{value := Netmask1Bin}}} | _] ->
+            {ok, Netmask1} = inet:parse_ipv4strict_address(binary_to_list(Netmask1Bin));
+        [{Ep1, endpoint, #{<<"ip">> := #{value := Ip1Bin}}} | _] ->
+            Netmask1 = {255, 255, 255, 255}
+    end,
     {ok, Ip1} = inet:parse_ipv4strict_address(binary_to_list(Ip1Bin)),
-    {Ep2, endpoint, #{<<"ip">> := #{value := Ip2Bin}}} = lists:last(VerticesEdges),
+    %% ...and for the second endpoint.
+    case lists:last(VerticesEdges) of
+        {Ep2, endpoint, #{<<"ip">> := #{value := Ip2Bin},
+                          <<"netmask">> := #{value := Netmask2Bin}}} ->
+            {ok, Netmask2} = inet:parse_ipv4strict_address(binary_to_list(Netmask2Bin));
+        {Ep2, endpoint, #{<<"ip">> := #{value := Ip2Bin}}} ->
+            Netmask2 = {255, 255, 255, 255}
+    end,
     {ok, Ip2} = inet:parse_ipv4strict_address(binary_to_list(Ip2Bin)),
-    flow_rules(VerticesEdges, Graph, Ip1, Ip2).
+    flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2}).
 
 vertices_edges_path(Graph, Ep1, Ep2) ->
     Path = digraph:get_path(Graph, Ep1, Ep2),
@@ -37,35 +52,38 @@ vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
     [{Id1, binary_to_atom(Type1, utf8), Metadata1}, binary_to_atom(EdgeType, utf8)]
 	++ vertices_edges(Tail, Graph).
 
--spec flow_rules([_], digraph:graph(), inet:ip4_address(), inet:ip4_address()) -> [datapath_flow_mod()].
-flow_rules(Path, Graph, Ip1, Ip2) ->
-    flow_rules(Path, Graph, [], Ip1, Ip2).
+-spec flow_rules([_], digraph:graph(),
+                 {Ip1 :: inet:ip4_address(), Netmask1 :: inet:ip4_address()},
+                 {Ip2 :: inet:ip4_address(), Netmask2 :: inet:ip4_address()}) -> [datapath_flow_mod()].
+flow_rules(Path, Graph, Endpoint1, Endpoint2) ->
+    flow_rules(Path, Graph, [], Endpoint1, Endpoint2).
 
-flow_rules([{_, endpoint, _}], _Graph, FlowRules, _Ip1, _Ip2) ->
+flow_rules([{_, endpoint, _}], _Graph, FlowRules, _Endpoint1, _Endpoint2) ->
     %% Nothing more to do.
     FlowRules;
-flow_rules([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Ip1, Ip2) ->
-    flow_rules(Tail, Graph, FlowRules, Ip1, Ip2);
-flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Ip1, Ip2) ->
-    flow_rules(Tail, Graph, FlowRules, Ip1, Ip2);
-flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRules, Ip1, Ip2) ->
-    flow_rules(Tail, Graph, FlowRules, Ip1, Ip2);
+flow_rules([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+    flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
+flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+    flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
+flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+    flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
-	    port_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules, Ip1, Ip2) ->
+	    port_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
+           Endpoint1 = {Ip1, Netmask1}, Endpoint2 = {Ip2, Netmask2}) ->
     %% Add bidirectional flow rules.
     SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
     FromPort1 = {in_port, fc_utils:id_to_port_no(Port1)},
     ToPort2 = {apply_actions, [{output, fc_utils:id_to_port_no(Port2), no_buffer}]},
     IpTrafficThere = {
       [FromPort1,
-       {ipv4_src, Ip1},
-       {ipv4_dst, Ip2}],
+       {ipv4_src, ip_to_bin(Ip1), ip_to_bin(Netmask1)},
+       {ipv4_dst, ip_to_bin(Ip2), ip_to_bin(Netmask2)}],
       [ToPort2],
       [{table_id, 0},
        {cookie, unique_cookie()}]},
     ArpPacketsThere = {
       [FromPort1,
-       {arp_tpa, ip_to_bin(Ip2)}],
+       {arp_tpa, ip_to_bin(Ip2), ip_to_bin(Netmask2)}],
       [ToPort2],
       [{table_id, 0},
        {cookie, unique_cookie()}]},
@@ -73,20 +91,20 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
     ToPort1 = {apply_actions, [{output, fc_utils:id_to_port_no(Port1), no_buffer}]},
     IpTrafficBack = {
       [FromPort2,
-       {ipv4_src, Ip2},
-       {ipv4_dst, Ip1}],
+       {ipv4_src, ip_to_bin(Ip2), ip_to_bin(Netmask2)},
+       {ipv4_dst, ip_to_bin(Ip1), ip_to_bin(Netmask1)}],
       [ToPort1],
       [{table_id, 0},
        {cookie, unique_cookie()}]},
     ArpPacketsBack = {
       [FromPort2,
-       {arp_tpa, ip_to_bin(Ip1)}],
+       {arp_tpa, ip_to_bin(Ip1), ip_to_bin(Netmask1)}],
       [ToPort1],
       [{table_id, 0},
        {cookie, unique_cookie()}]},
     NewRules = [IpTrafficThere, ArpPacketsThere, IpTrafficBack, ArpPacketsBack],
     NewFlowRules = [{SwitchId, ?OF_VERSION, NewRule} || NewRule <- NewRules] ++ FlowRules,
-    flow_rules(Tail, Graph, NewFlowRules, Ip1, Ip2).
+    flow_rules(Tail, Graph, NewFlowRules, Endpoint1, Endpoint2).
 
 edges_between(Id1, Id2, Graph) ->
     OutEdges1 = digraph:out_edges(Graph, Id1),
