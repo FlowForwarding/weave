@@ -15,11 +15,25 @@ path_flow_rules(Ep1, Ep2) ->
     {ok, Graph} = dobby_oflib:get_path(Ep1, Ep2),
     VerticesEdges = vertices_edges_path(Graph, Ep1, Ep2),
 
-    %% Find IP and possibly netmask for the endpoints
-    {Ip1, Netmask1} = endpoint_ip_netmask(hd(VerticesEdges)),
-    {Ip2, Netmask2} = endpoint_ip_netmask(lists:last(VerticesEdges)),
+    FirstVertice = hd(VerticesEdges),
+    LastVertice = lists:last(VerticesEdges),
 
-    flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2}).
+    %% Find IP and possibly netmask for the endpoints
+    {Ip1, Netmask1} = endpoint_ip_netmask(FirstVertice),
+    {Ip2, Netmask2} = endpoint_ip_netmask(LastVertice),
+
+    RestOfTrafficRules =
+        case {is_rest_of_traffic(FirstVertice), is_rest_of_traffic(LastVertice)} of
+            {false, false} ->
+                [];
+            {true, false} ->
+                flow_rules(VerticesEdges, Graph, {{0,0,0,0}, {0,0,0,0}}, {Ip2, Netmask2});
+            {false, true} ->
+                flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {{0,0,0,0}, {0,0,0,0}})
+        end,
+
+    RestOfTrafficRules ++
+        flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2}).
 
 vertices_edges_path(Graph, Ep1, Ep2) ->
     Path = digraph:get_path(Graph, Ep1, Ep2),
@@ -120,6 +134,11 @@ endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin}}}) ->
     Netmask = {255, 255, 255, 255},
     {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
     {Ip, Netmask}.
+
+is_rest_of_traffic({_Ep, endpoint, #{<<"rest-of-traffic">> := #{value := true}}}) ->
+    true;
+is_rest_of_traffic({_Ep, endpoint, #{}}) ->
+    false.
 
 ip_to_bin({A,B,C,D}) ->
     <<A:8,B:8,C:8,D:8>>.
