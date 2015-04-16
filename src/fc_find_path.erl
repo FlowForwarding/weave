@@ -15,24 +15,10 @@ path_flow_rules(Ep1, Ep2) ->
     {ok, Graph} = dobby_oflib:get_path(Ep1, Ep2),
     VerticesEdges = vertices_edges_path(Graph, Ep1, Ep2),
 
-    %% Find IP and possibly netmask for the first endpoint...
-    case VerticesEdges of
-        [{Ep1, endpoint, #{<<"ip">> := #{value := Ip1Bin},
-                           <<"netmask">> := #{value := Netmask1Bin}}} | _] ->
-            {ok, Netmask1} = inet:parse_ipv4strict_address(binary_to_list(Netmask1Bin));
-        [{Ep1, endpoint, #{<<"ip">> := #{value := Ip1Bin}}} | _] ->
-            Netmask1 = {255, 255, 255, 255}
-    end,
-    {ok, Ip1} = inet:parse_ipv4strict_address(binary_to_list(Ip1Bin)),
-    %% ...and for the second endpoint.
-    case lists:last(VerticesEdges) of
-        {Ep2, endpoint, #{<<"ip">> := #{value := Ip2Bin},
-                          <<"netmask">> := #{value := Netmask2Bin}}} ->
-            {ok, Netmask2} = inet:parse_ipv4strict_address(binary_to_list(Netmask2Bin));
-        {Ep2, endpoint, #{<<"ip">> := #{value := Ip2Bin}}} ->
-            Netmask2 = {255, 255, 255, 255}
-    end,
-    {ok, Ip2} = inet:parse_ipv4strict_address(binary_to_list(Ip2Bin)),
+    %% Find IP and possibly netmask for the endpoints
+    {Ip1, Netmask1} = endpoint_ip_netmask(hd(VerticesEdges)),
+    {Ip2, Netmask2} = endpoint_ip_netmask(lists:last(VerticesEdges)),
+
     flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2}).
 
 vertices_edges_path(Graph, Ep1, Ep2) ->
@@ -124,6 +110,16 @@ unique_cookie() ->
     {A,B,C} = erlang:now(),
     N = (A * 1000000 + B) * 1000000 + C,
     <<N:64>>.
+
+endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin},
+                                      <<"netmask">> := #{value := NetmaskBin}}}) ->
+    {ok, Netmask} = inet:parse_ipv4strict_address(binary_to_list(NetmaskBin)),
+    {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
+    {Ip, Netmask};
+endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin}}}) ->
+    Netmask = {255, 255, 255, 255},
+    {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
+    {Ip, Netmask}.
 
 ip_to_bin({A,B,C,D}) ->
     <<A:8,B:8,C:8,D:8>>.
