@@ -80,9 +80,10 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
     %% TODO: look for guidance in the JSON file.
     Priority = {priority, min(netmask_length(NetmaskBin1), netmask_length(NetmaskBin2))},
     IpTrafficThere = {
-      [FromPort1,
-       {ipv4_src, ip_to_bin(Ip1), NetmaskBin1},
-       {ipv4_dst, ip_to_bin(Ip2), NetmaskBin2}],
+      [FromPort1] ++
+          %% If the netmask is all zeroes, there is no point in matching anything.
+          [{ipv4_src, ip_to_bin(Ip1), NetmaskBin1} || NetmaskBin1 =/= <<0,0,0,0>>] ++
+          [{ipv4_dst, ip_to_bin(Ip2), NetmaskBin2} || NetmaskBin2 =/= <<0,0,0,0>>],
       [ToPort2],
       [{table_id, 0},
        Priority,
@@ -97,9 +98,9 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
     FromPort2 = {in_port, fc_utils:id_to_port_no(Port2)},
     ToPort1 = {apply_actions, [{output, fc_utils:id_to_port_no(Port1), no_buffer}]},
     IpTrafficBack = {
-      [FromPort2,
-       {ipv4_src, ip_to_bin(Ip2), NetmaskBin2},
-       {ipv4_dst, ip_to_bin(Ip1), NetmaskBin1}],
+      [FromPort2] ++
+          [{ipv4_src, ip_to_bin(Ip2), NetmaskBin2} || NetmaskBin2 =/= <<0,0,0,0>>] ++
+          [{ipv4_dst, ip_to_bin(Ip1), NetmaskBin1} || NetmaskBin1 =/= <<0,0,0,0>>],
       [ToPort1],
       [{table_id, 0},
        Priority,
