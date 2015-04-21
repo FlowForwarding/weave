@@ -90,7 +90,8 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
        {cookie, unique_cookie()}]},
     ArpPacketsThere = {
       [FromPort1,
-       {arp_tpa, ip_to_bin(Ip2), NetmaskBin2}],
+       {eth_type,<<16#806:16>>}] ++
+          [{arp_tpa, ip_to_bin(Ip2), NetmaskBin2} || NetmaskBin2 =/= <<0,0,0,0>>],
       [ToPort2],
       [{table_id, 0},
        Priority,
@@ -107,7 +108,8 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
        {cookie, unique_cookie()}]},
     ArpPacketsBack = {
       [FromPort2,
-       {arp_tpa, ip_to_bin(Ip1), NetmaskBin1}],
+       {eth_type,<<16#806:16>>}] ++
+          [{arp_tpa, ip_to_bin(Ip1), NetmaskBin1} || NetmaskBin1 =/= <<0,0,0,0>>],
       [ToPort1],
       [{table_id, 0},
        Priority,
