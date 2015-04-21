@@ -88,6 +88,13 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
       [{table_id, 0},
        Priority,
        {cookie, unique_cookie()}]},
+    IpBroadcastThere = {
+      [FromPort1,
+       {ipv4_dst, <<255, 255, 255, 255>>}],
+      %% XXX: In principle, we should broadcast this packet.
+      [ToPort2],
+      [{table_id, 0},
+       {cookie, unique_cookie()}]},
     ArpPacketsThere = {
       [FromPort1,
        {eth_type,<<16#806:16>>}] ++
@@ -106,6 +113,13 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
       [{table_id, 0},
        Priority,
        {cookie, unique_cookie()}]},
+    IpBroadcastBack = {
+      [FromPort2,
+       {ipv4_dst, <<255, 255, 255, 255>>}],
+      %% XXX: ditto
+      [ToPort1],
+      [{table_id, 0},
+       {cookie, unique_cookie()}]},
     ArpPacketsBack = {
       [FromPort2,
        {eth_type,<<16#806:16>>}] ++
@@ -114,7 +128,8 @@ flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
       [{table_id, 0},
        Priority,
        {cookie, unique_cookie()}]},
-    NewRules = [IpTrafficThere, ArpPacketsThere, IpTrafficBack, ArpPacketsBack],
+    NewRules = [IpTrafficThere, IpBroadcastThere, ArpPacketsThere,
+                IpTrafficBack, IpBroadcastBack, ArpPacketsBack],
     NewFlowRules = [{SwitchId, ?OF_VERSION, NewRule} || NewRule <- NewRules] ++ FlowRules,
     flow_rules(Tail, Graph, NewFlowRules, Endpoint1, Endpoint2).
 
