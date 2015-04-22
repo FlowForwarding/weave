@@ -16,10 +16,16 @@ if [ $# -lt 3 ]; then
     echo "  and DESTINATION is the name of the destination endpoint," >&2
     echo "  and SWITCH is zero or more switches to connect to." >&2
     echo "" >&2
-    echo "If no SWITCH is specified, Weave will wait for the switch" >&2
+    echo "If no SWITCH is specified, Weave will wait for the switches" >&2
     echo "to connect to it on port 6653.  Each SWITCH may be either a" >&2
     echo "hostname or an IP address, optionally followed by a colon" >&2
     echo "and a port number." >&2
+    echo "" >&2
+    echo "If SOURCE has its 'use_bridge_rules' metadata entry set to true," >&2
+    echo "DESTINATION can be a comma-separated list of endpoints.  In this" >&2
+    echo "case, Weave will create flow rules that forward all packets from" >&2
+    echo "SOURCE to each DESTINATION, and all packets from each DESTINATION" >&2
+    echo "to SOURCE, without regards to source and destination IP addresses." >&2
     exit 1
 fi
 

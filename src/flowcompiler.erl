@@ -58,19 +58,14 @@ main() ->
     end,
 
     Source = list_to_binary(SourceS),
-    Destination = list_to_binary(DestinationS),
-    %% Ready to find flow rules!
-    FlowRules = fc_find_path:path_flow_rules(Source, Destination),
-
-    lists:foreach(fun connect_to_switch/1, SwitchesS),
-    %% Now that we know which switches are affected by the flow rules,
-    %% ensure that they are connected.
-    case lists:foldl(fun wait_for_switch/2, 10, lists:ukeysort(1, FlowRules)) of
-        0 ->
-            io:format(standard_error, "Timeout while waiting for switches\n", []),
-            halt(1);
-        Remaining when is_integer(Remaining) ->
-            ok
+    case fc_find_path:use_bridge_rules(Source) of
+        true ->
+            HubDestinations = lists:map(fun list_to_binary/1, string:tokens(DestinationS, ",")),
+            FlowRules = fc_find_path:hub_flow_rules(Source, HubDestinations);
+        false ->
+            Destination = list_to_binary(DestinationS),
+            %% Ready to find flow rules!
+            FlowRules = fc_find_path:path_flow_rules(Source, Destination)
     end,
 
     io:format("Sending flow rules:\n"),
@@ -83,20 +78,33 @@ main() ->
                          "", Instr,
                          "", Opts])
       end, FlowRules),
+    lists:foreach(fun connect_to_switch/1, SwitchesS),
+    %% Now that we know which switches are affected by the flow rules,
+    %% ensure that they are connected.
+    case lists:foldl(fun wait_for_switch/2, 10, lists:ukeysort(1, FlowRules)) of
+        0 ->
+            io:format(standard_error, "Timeout while waiting for switches\n", []),
+            halt(1);
+        Remaining when is_integer(Remaining) ->
+            ok
+    end,
 
     lists:foreach(fun send_flow_rules/1, FlowRules),
-    FlowModIds =
-        lists:map(
-          fun(DatapathFlowMod) ->
-                  {ok, FlowModId} =
-                      dobby_oflib:publish_dp_flow_mod(<<"flowcompiler">>, DatapathFlowMod),
-                  FlowModId
-          end, FlowRules),
-    dobby_oflib:publish_net_flow(
-      <<"flowcompiler">>,
-      Source,
-      Destination,
-      FlowModIds),
+    %% TODO: publish rules to Dobby, regardless of whether they are
+    %% "normal" or "hub" rules.
+    %%
+    %% FlowModIds =
+    %%     lists:map(
+    %%       fun(DatapathFlowMod) ->
+    %%               {ok, FlowModId} =
+    %%                   dobby_oflib:publish_dp_flow_mod(<<"flowcompiler">>, DatapathFlowMod),
+    %%               FlowModId
+    %%       end, FlowRules),
+    %% dobby_oflib:publish_net_flow(
+    %%   <<"flowcompiler">>,
+    %%   Source,
+    %%   Destination,
+    %%   FlowModIds),
     io:format("~b rules published\n", [length(FlowRules)]),
     halt(0).
 

@@ -5,10 +5,23 @@
 %% For the type datapath_flow_mod().
 -include_lib("dobby_oflib/include/dobby_oflib.hrl").
 
--export([path_flow_rules/2]).
+-export([use_bridge_rules/1,
+         path_flow_rules/2,
+         hub_flow_rules/2]).
 
 %% TODO: adapt to actual protocol version
 -define(OF_VERSION, 4).
+
+use_bridge_rules(SourceEndpoint) ->
+    dby:search(
+      fun(_Id, #{<<"use_bridge_rules">> := #{value := true}}, _, _) ->
+              {stop, true};
+         (_Id, _Metadata, _, _) ->
+              {stop, false}
+      end,
+      false,
+      SourceEndpoint,
+      [breadth, {max_depth, 1}]).
 
 -spec path_flow_rules(binary(), binary()) -> [datapath_flow_mod()].
 path_flow_rules(Ep1, Ep2) ->
@@ -171,3 +184,53 @@ netmask_length(<<0:1, _/bits>>, Acc) ->
 netmask_length(<<1:1, Rest/bits>>, Acc) ->
     netmask_length(Rest, 1 + Acc).
 
+hub_flow_rules(SourceEndpoint, TargetEndpoints) ->
+    %% Create flow rules that send every packet from SourceEndpoint to
+    %% each of the TargetEndpoints, and every packet from one of the
+    %% TargetEndpoints to SourceEndpoints, only looking at inports and
+    %% disregarding any properties of the packets.
+    Paths = [begin
+                  {ok, Graph} = dobby_oflib:get_path(SourceEndpoint, TargetEndpoint),
+                  vertices_edges_path(Graph, SourceEndpoint, TargetEndpoint)
+              end || TargetEndpoint <- TargetEndpoints],
+    %% For each target endpoint, find where we need to install bridge
+    %% rules.
+    BridgeHere = lists:append(lists:map(fun bridge_points/1, Paths)),
+    %% Combine them into one rule for each switch+inport combination.
+    Combined = combine_bridge_points(BridgeHere),
+    lists:map(
+      fun({{SwitchId, InPort}, OutPorts}) ->
+              {SwitchId, ?OF_VERSION,
+               {[{in_port, fc_utils:id_to_port_no(InPort)}],
+                [{apply_actions,
+                  [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
+                [{table_id, 0}, {cookie, unique_cookie()}]}}
+      end, Combined).
+
+bridge_points([{_, endpoint, _}]) ->
+    %% Nothing more to do.
+    [];
+bridge_points([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+    bridge_points(Tail);
+bridge_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+    bridge_points(Tail);
+bridge_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
+    bridge_points(Tail);
+bridge_points([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
+              port_of | [{Port2, of_port, _} | _] = Tail]) ->
+    SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
+    BridgeThere = {{SwitchId, Port1}, [Port2]},
+    BridgeBack = {{SwitchId, Port2}, [Port1]},
+    [BridgeThere, BridgeBack] ++ bridge_points(Tail).
+
+combine_bridge_points([]) ->
+    [];
+combine_bridge_points([{Key = {_SwitchId, _InPort}, OutPorts} | Rest]) ->
+    %% As long as there are more entries for a switch+inport
+    %% combination, keep merging them into one entry.
+    case lists:keytake(Key, 1, Rest) of
+        {value, {Key, NewOutPorts}, NewRest} ->
+            combine_bridge_points([{Key, OutPorts ++ NewOutPorts} | NewRest]);
+        false ->
+            [{Key, OutPorts}] ++ combine_bridge_points(Rest)
+    end.
