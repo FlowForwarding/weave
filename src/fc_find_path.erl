@@ -190,8 +190,15 @@ hub_flow_rules(SourceEndpoint, TargetEndpoints) ->
     %% TargetEndpoints to SourceEndpoints, only looking at inports and
     %% disregarding any properties of the packets.
     Paths = [begin
-                  {ok, Graph} = dobby_oflib:get_path(SourceEndpoint, TargetEndpoint),
-                  vertices_edges_path(Graph, SourceEndpoint, TargetEndpoint)
+                  case dobby_oflib:get_path(SourceEndpoint, TargetEndpoint) of
+                      {ok, Graph} ->
+                          vertices_edges_path(Graph, SourceEndpoint, TargetEndpoint);
+                      {error, no_path} ->
+                          io:format(standard_error,
+                                    "No path found between '~s' and '~s'~n",
+                                    [SourceEndpoint, TargetEndpoint]),
+                          error({no_path, SourceEndpoint, TargetEndpoint})
+                  end
               end || TargetEndpoint <- TargetEndpoints],
     %% For each target endpoint, find where we need to install bridge
     %% rules.
