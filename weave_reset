@@ -1,0 +1,27 @@
+#!/bin/sh
+
+set -e
+
+CONFIG_FILE=deps/loom/simple_ne/rel/files/sys.config
+
+if [ ! -e "$CONFIG_FILE" ]; then
+    echo "Config file not present. Run 'make' first." >&2
+    exit 1
+fi
+
+if [ $# -lt 1 ]; then
+    cat >&2 << EOF
+Usage: $0 SWITCH ...
+  SWITCH is the list of switches to listen for or connect to.
+
+weave_reset connects to the switches and removes all the flows from
+table 0.  Each SWITCH may be either a hostname or an IP address,
+optionally followed by a colon and a port number.
+
+EOF
+    exit 1
+fi
+
+erl -pa ebin -pa deps/*/ebin deps/loom/simple_ne/apps/*/ebin \
+    -config "$CONFIG_FILE" \
+    -noinput -eval "flow_reset:main()" -- "$@"
