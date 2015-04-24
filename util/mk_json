@@ -1,0 +1,162 @@
+#!/usr/bin/env escript
+
+% Script to convert an Erlang term file into a dobby json file
+% representing a network topology.
+%
+% The possible erlang terms are:
+%
+% {of_switch, Id, DatapathId, [Port]}.
+% {endpoint, Id, Ip, Switch Port}.
+% {connect, Switch1, Port1, Switch2, Port2}.
+% {gateway_bridge, Id, Switch, Port}.
+% {gateway_mask, Id, Ip, NetMask, Switch, Port}.
+
+% helper macros (they could also be functions)
+-define(q(S), [$", S, $"]).
+-define(kv(K, V), [K, $:, V, $\n]).
+-define(qkv(K, V), ?kv(?q(K), ?q(V))).
+-define(identifier(I), ?kv(?q("identifier"), ?q(I))).
+-define(type(I), ?kv(?q("type"), ?q(I))).
+-define(metadata(M), ?kv(?q("metadata"), [${, M, $}])).
+-define(metaelement(K, V), ?kv(?q(K), V)).
+-define(link(A, B), ?kv(?q("link"), [$[, ?q(A), $,, ?q(B), $]])).
+-define(port(S, P), [S, $/, P]).
+
+% escript main entry point
+main([]) ->
+    usage();
+main(Argv) ->
+    Args = parse_argv(Argv),
+    Json = list([mk_json(file_consult(Topology)) || Topology <- maps:get(filenames, Args)]),
+    io:format("~s~n", [Json]),
+    halt(0).
+
+% print usage string and stop
+usage() ->
+    io:format("usage: mk_json topology [topology...]"),
+    halt(1).
+
+% Read the terms from an Erlang terms file and generate
+% a sensible error message if the file isn't there.
+file_consult(Filename) ->
+    case file:consult(Filename) of
+        {error, enoent} ->
+            io:format("~s: file not found~n", [Filename]),
+            usage();
+        {ok, Terms} ->
+            Terms
+    end.
+
+% command line argument parser
+parse_argv(Argv) ->
+    parse_argv(Argv, #{filenames => []}).
+
+parse_argv([], Acc) ->
+    Acc;
+parse_argv([Filename | Rest], Acc = #{filenames := Filenames}) ->
+    parse_argv(Rest, maps:update(filenames, Filenames ++ [Filename], Acc)).
+
+% create the JSON from the Erlang terms.
+mk_json(Topology) ->
+    mk_json(Topology, []).
+
+mk_json([], Acc) ->
+    comma(lists:reverse(Acc));
+mk_json([{of_switch, Id, DatapathId, Ports} | Rest], Acc) ->
+    % of_switch
+    TableId = [Id, "-table-0"],
+    mk_json(Rest,
+        [[
+            identifier(Id, "of_switch", [{"datapath_id", ?q(DatapathId)}]), $\,,
+            identifier(TableId, "of_flow_table", [{"table_no", "0"}]), $\,,
+            connection(Id, TableId, "of_resource"), $\,,
+            comma([port(Id, Port) || Port <- Ports])
+        ]| Acc]);
+mk_json([{endpoint, Id, Ip, Switch, Port} | Rest], Acc) ->
+    % endpoint
+    mk_json(Rest,
+        [[
+            endpoint(Id, [{"ip", ?q(Ip)}]), $,,
+            connected_to(Id, ?port(Switch, Port))
+        ]| Acc]);
+mk_json([{connect, Switch1, Port1, Switch2, Port2} | Rest], Acc) ->
+    % connection between switches
+    mk_json(Rest,
+        [
+            connected_to(?port(Switch1, Port1), ?port(Switch2, Port2))
+        | Acc]);
+mk_json([{gateway_bridge, Id, Switch, Port} | Rest], Acc) ->
+    % gateway bridge (use_bridge_rules is true)
+    mk_json(Rest,
+        [[
+            endpoint(Id, [{"ip", ?q("255.255.255.255")}, {"netmask", ?q("0.0.0.0")}, {"use_bridge_rules", "true"}]), $,,
+            connected_to(Id, ?port(Switch, Port))
+        ]| Acc]);
+mk_json([{gateway_mask, Id, Ip, NetMask, Switch, Port} | Rest], Acc) ->
+    % gateway using netmask
+    mk_json(Rest,
+        [[
+            endpoint(Id, [{"ip", ?q(Ip)}, {"netmask", ?q(NetMask)}, {"use_bridge_rules", "false"}]), $,,
+            connected_to(Id, ?port(Switch, Port))
+        ]| Acc]);
+mk_json([Term | _], _) ->
+    % invalid Erlang term
+    io:format("Unknown term: ~p~n", [Term]),
+    halt(1).
+
+% helper functions
+
+% generate an endpoint
+endpoint(Id, Metadata) ->
+    identifier(Id, "endpoint", Metadata).
+
+% generate an identifier with no metadata
+identifier(Id, Type) ->
+    identifier(Id, Type, []).
+
+% generate an identifier with metadata
+identifier(Id, Type, Metadata) ->
+    [
+        ${, $\n,
+            ?identifier(Id), $,,
+            metadata([{"type", ?q(Type)} | Metadata]),
+        $}, $\n
+    ].
+
+% generate metadata from a property list.  Property list
+% key is a string.  The Property list value must be formatted
+% for JSON (e.g., ?q() to quote strings).
+metadata(Metadata) ->
+    ?metadata(comma([?metaelement(K, V) || {K, V} <- Metadata])).
+
+% generate a port on Switch with Id
+port(Id, Port) ->
+    PortName = ?port(Id, Port),
+    [
+        identifier(PortName, "of_port"), $,,
+        connection(Id, PortName, "port_of")
+    ].
+
+% generate a "connected_to" link
+connected_to(A, B) ->
+    connection(A, B, "connected_to").
+
+% generate a link of type Type.
+connection(A, B, Type) ->
+    [
+        ${, $\n,
+            ?link(A, B), $,,
+            metadata([{"type", ?q(Type)}]),
+        $}, $\n
+    ].
+
+% generate list
+list(L) ->
+    [
+        $[, $\n,
+        comma(L),
+        $]
+    ].
+
+comma(L) ->
+    string:join(L, ",").

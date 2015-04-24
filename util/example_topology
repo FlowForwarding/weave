@@ -1,0 +1,36 @@
+% lincx11
+{of_switch, "OFS1", "00:00:00:16:3E:5F:11:00",
+                                ["OFP1","OFP2","OFP3","OFP4","OFP5","OFP6"]}.
+{gateway_bridge, "gateway", "OFS1", "OFP1"}.
+{endpoint, "pi-32", "10.48.33.132", "OFS1", "OFP3"}.
+{endpoint, "pi-30", "10.48.33.130", "OFS1", "OFP5"}.
+{endpoint, "pi-26", "10.48.33.126", "OFS1", "OFP4"}.
+{endpoint, "pi-29", "10.48.33.129", "OFS1", "OFP2"}.
+
+% lincx12
+{of_switch, "OFS2", "00:00:00:16:3E:5F:12:00",
+                                ["OFP1","OFP2","OFP3","OFP4","OFP5","OFP6"]}.
+{endpoint, "pi-07", "10.48.33.107", "OFS2", "OFP2"}.
+{endpoint, "pi-06", "10.48.33.106", "OFS2", "OFP4"}.
+% {endpoint, "pi-08", "10.48.33.108", "OFS2", ???}.
+{endpoint, "pi-16", "10.48.33.116", "OFS2", "OFP3"}.
+
+% lincx13
+{of_switch, "OFS3", "00:00:00:16:3E:5F:13:00",
+                                ["OFP1","OFP2","OFP3","OFP4","OFP5","OFP6"]}.
+{endpoint, "pi-27", "10.48.33.127", "OFS3", "OFP4"}.
+{endpoint, "pi-28", "10.48.33.128", "OFS3", "OFP3"}.
+{endpoint, "pi-31", "10.48.33.131", "OFS3", "OFP2"}.
+% {endpoint, "pi-25", "10.48.33.125", "OFS3", ???}.
+
+% lincx21
+{of_switch, "OFS4", "00:00:00:16:3E:5F:21:00",
+                                ["OFP1","OFP2","OFP3","OFP4","OFP5","OFP6"]}.
+{endpoint, "pi-02", "10.48.33.127", "OFS4", "OFP3"}.
+{endpoint, "pi-03", "10.48.33.128", "OFS4", "OFP2"}.
+{endpoint, "pi-04", "10.48.33.131", "OFS4", "OFP5"}.
+{endpoint, "pi-09", "10.48.33.125", "OFS4", "OFP4"}.
+
+{connect, "OFS1", "OFP6", "OFS2", "OFP5"}.
+{connect, "OFS2", "OFP6", "OFS3", "OFP5"}.
+{connect, "OFS3", "OFP6", "OFS4", "OFP6"}.
