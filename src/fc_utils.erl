@@ -19,13 +19,12 @@ dpid_to_no(Dpid) ->
 ip(N) ->
     {10, 0, 0, N}.
 
-id_to_port_no(<<"OFS", Tail1/binary>>) ->
-    Tail2 = drop_number(Tail1),
-    <<"/OFP", PortNoB/binary>> = Tail2,
-    binary_to_integer(PortNoB).
-
-drop_number(<<C, Tail/binary>>) when $0 =< C, C =< $9 ->
-    drop_number(Tail);
-drop_number(Bin) when is_binary(Bin) ->
-    Bin.
+id_to_port_no(OFPortId) ->
+    %% XXX: we should keep port numbers in the node metadata
+    case re:run(OFPortId, "/OFP([0-9]*)$",[{capture, all_but_first, list}]) of
+        {match, [PortNoS]} ->
+            list_to_integer(PortNoS);
+        nomatch ->
+            error(invalid_ofport_id, [OFPortId])
+    end.
 
