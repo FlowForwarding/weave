@@ -177,7 +177,7 @@ port(Id, Port) ->
     PortName = ?port(Id, Port),
     [
         identifier(PortName, "of_port"), $,,
-        connection(Id, PortName, "port_of")
+        connection(Id, PortName, "part_of")
     ].
 
 % generate a "connected_to" link
