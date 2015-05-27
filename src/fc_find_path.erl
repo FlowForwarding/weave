@@ -80,8 +80,8 @@ flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
-flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
-	    port_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
+flow_rules([{Port1, of_port, _}, part_of, {_Switch, of_switch, SwitchMetadata},
+	    part_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
            Endpoint1 = {Ip1, Netmask1}, Endpoint2 = {Ip2, Netmask2}) ->
     %% Add bidirectional flow rules.
     SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
@@ -223,8 +223,8 @@ bridge_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
 bridge_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
     bridge_points(Tail);
-bridge_points([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
-              port_of | [{Port2, of_port, _} | _] = Tail]) ->
+bridge_points([{Port1, of_port, _}, part_of, {_Switch, of_switch, SwitchMetadata},
+              part_of | [{Port2, of_port, _} | _] = Tail]) ->
     SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
     BridgeThere = {{SwitchId, Port1}, [Port2]},
     BridgeBack = {{SwitchId, Port2}, [Port1]},
