@@ -61,7 +61,15 @@ vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
     {Id2, #{}} = digraph:vertex(Graph, Id2),
     %% TODO: is there a nicer way to get the edge between Id1 and Id2?
     [Edge] = edges_between(Id1, Id2, Graph),
-    {Edge, Id1, Id2, #{<<"type">> := #{value := EdgeType}}} = digraph:edge(Graph, Edge),
+    {Edge, Id1, Id2, #{<<"type">> := #{value := ActualEdgeType}}} = digraph:edge(Graph, Edge),
+    EdgeType =
+        case ActualEdgeType of
+            <<"port_of">> ->
+                %% Accept "port_of" as synonym for "part_of" for now.
+                <<"part_of">>;
+            _ ->
+                ActualEdgeType
+        end,
     [{Id1, binary_to_atom(Type1, utf8), Metadata1}, binary_to_atom(EdgeType, utf8)]
 	++ vertices_edges(Tail, Graph).
 
