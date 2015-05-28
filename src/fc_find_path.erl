@@ -213,14 +213,7 @@ hub_flow_rules(SourceEndpoint, TargetEndpoints) ->
     BridgeHere = lists:append(lists:map(fun bridge_points/1, Paths)),
     %% Combine them into one rule for each switch+inport combination.
     Combined = combine_bridge_points(BridgeHere),
-    lists:map(
-      fun({{SwitchId, InPort}, OutPorts}) ->
-              {SwitchId, ?OF_VERSION,
-               {[{in_port, fc_utils:id_to_port_no(InPort)}],
-                [{apply_actions,
-                  [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
-                [{table_id, 0}, {cookie, unique_cookie()}]}}
-      end, Combined).
+    lists:map(fun hub_flow_rule/1, Combined).
 
 bridge_points([{_, endpoint, _}]) ->
     %% Nothing more to do.
@@ -248,4 +241,65 @@ combine_bridge_points([{Key = {_SwitchId, _InPort}, OutPorts} | Rest]) ->
             combine_bridge_points([{Key, OutPorts ++ NewOutPorts} | NewRest]);
         false ->
             [{Key, OutPorts}] ++ combine_bridge_points(Rest)
+    end.
+
+hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
+    InPortNo = fc_utils:id_to_port_no(InPort),
+    %% First, check if there is already a flow rule with the same
+    %% match.
+    ExistingFlowRule =
+        dby:search(
+          fun(Id, _NodeMetadata, [], Acc) when Id =:= SwitchId ->
+                  %% Starting point. Go on.
+                  {continue, Acc};
+             (_, #{<<"type">> := #{value := <<"of_flow_table">>},
+                   <<"table_no">> := #{value := 0}},
+              [{TheSwitchId, _, #{<<"type">> := #{value := <<"of_resource">>}}}],
+              Acc) when TheSwitchId =:= SwitchId ->
+                  %% Flow table 0, linked to the switch with an of_resource link.
+                  %% Go on and find its flow rules.
+                  {continue, Acc};
+             (Id, #{<<"type">> := #{value := <<"of_flow_mod">>},
+                    <<"matches">> := #{value := Matches},
+                    <<"instructions">> := #{value := Instructions}},
+              _, Acc) ->
+                  %% A flow rule.
+                  case Matches of
+                      [{in_port, TheInPortNo}] when TheInPortNo =:= InPortNo ->
+                          %% Match the same inport we care about.
+                          %% This is the rule we want.
+                          {stop, {Id, Matches, Instructions}};
+                      _ ->
+                          %% Not the rule we're looking for.
+                          {skip, Acc}
+                  end;
+             (_, _, _, Acc) ->
+                  %% Skip everything else.
+                  {skip, Acc}
+          end,
+          not_found,
+          SwitchId,
+          [depth, {max_depth, 2}]),
+    case ExistingFlowRule of
+        not_found ->
+            {SwitchId, ?OF_VERSION,
+             {[{in_port, InPortNo}],
+              [{apply_actions,
+                [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
+              [{table_id, 0}, {cookie, unique_cookie()}]}};
+        {Cookie, Matches, Instructions} ->
+            ExistingOutports =
+                case lists:keyfind(apply_actions, 1, Instructions) of
+                    false ->
+                        [];
+                    {apply_actions, Actions} ->
+                        [OutPort || {output, OutPort, _} <- Actions]
+                end,
+            NewOutPorts = lists:usort(lists:map(fun fc_utils:id_to_port_no/1, OutPorts)
+                                      ++ ExistingOutports),
+            {SwitchId, ?OF_VERSION,
+             {Matches,
+              [{apply_actions,
+                [{output, OutPort, no_buffer} || OutPort <- NewOutPorts]}],
+              [{table_id, 0}, {cookie, Cookie}]}}
     end.

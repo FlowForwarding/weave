@@ -92,20 +92,23 @@ main() ->
     lists:foreach(fun send_flow_rules/1, FlowRules),
     %% TODO: publish rules to Dobby, regardless of whether they are
     %% "normal" or "hub" rules.
-    %%
-    %% FlowModIds =
-    %%     lists:map(
-    %%       fun(DatapathFlowMod) ->
-    %%               {ok, FlowModId} =
-    %%                   dobby_oflib:publish_dp_flow_mod(<<"flowcompiler">>, DatapathFlowMod),
-    %%               FlowModId
-    %%       end, FlowRules),
+
+    FlowModIds =
+        lists:map(
+          fun(DatapathFlowMod) ->
+                  {ok, FlowModId} =
+                      dobby_oflib:publish_dp_flow_mod(<<"flowcompiler">>, DatapathFlowMod),
+                  FlowModId
+          end, FlowRules),
+    %% TODO: do something sensible for Destination for hub flow rules
     %% dobby_oflib:publish_net_flow(
     %%   <<"flowcompiler">>,
     %%   Source,
     %%   Destination,
     %%   FlowModIds),
     io:format("~b rules published\n", [length(FlowRules)]),
+    %% Attempt to flush Mnesia tables
+    mnesia:stop(),
     halt(0).
 
 wait_for_switch({Dpid, _, _} = FlowRule, Remaining) ->
