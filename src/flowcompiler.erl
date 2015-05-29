@@ -37,24 +37,39 @@ send_flow_rules({Dpid, OFVersion, {Matches, Instr, Opts}}) when is_binary(Dpid) 
     ok.
 
 main() ->
-    [JSONFile, SourceS, DestinationS | SwitchesS] = init:get_plain_arguments(),
+    [JSONFileOrNodeName, SourceS, DestinationS | SwitchesS] = init:get_plain_arguments(),
     %% If any switches are specified, don't listen for connections.
     application:load(of_driver),
     SwitchesS =:= [] orelse application:set_env(of_driver, listen, false),
 
-    {ok, _} = application:ensure_all_started(dobby),
     {ok, _} = application:ensure_all_started(flowcompiler),
-    %% Wait for Dobby's Mnesia table.
-    ok = mnesia:wait_for_tables([identifier], 10000),
+    case lists:member($@, JSONFileOrNodeName) of
+        true ->
+            %% This looks like a node name
+            NodeName = list_to_atom(JSONFileOrNodeName),
+            case net_adm:ping(NodeName) of
+                pong -> ok;
+                pang ->
+                    io:format(standard_error, "Cannot connect to Dobby node at ~p; exiting~n", [NodeName]),
+                    halt(1)
+            end;
+        false ->
+            %% This looks like a JSON file name.  Let's import it into
+            %% a local Dobby instance.
+            JSONFile = JSONFileOrNodeName,
+            {ok, _} = application:ensure_all_started(dobby),
+            %% Wait for Dobby's Mnesia table.
+            ok = mnesia:wait_for_tables([identifier], 10000),
 
-    %% Import the JSON file.  Assume that it's in the legacy format
-    %% for now.
-    case dby_bulk:import(json0, JSONFile) of
-        ok -> ok;
-        {error, ImportError} ->
-            io:format(standard_error, "Cannot import JSON file ~s: ~p",
-                      [JSONFile, ImportError]),
-            halt(1)
+            %% Import the JSON file.  Assume that it's in the legacy format
+            %% for now.
+            case dby_bulk:import(json0, JSONFile) of
+                ok -> ok;
+                {error, ImportError} ->
+                    io:format(standard_error, "Cannot import JSON file ~s: ~p",
+                              [JSONFile, ImportError]),
+                    halt(1)
+            end
     end,
 
     Source = list_to_binary(SourceS),
