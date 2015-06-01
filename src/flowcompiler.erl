@@ -48,7 +48,11 @@ main() ->
             %% This looks like a node name
             NodeName = list_to_atom(JSONFileOrNodeName),
             case net_adm:ping(NodeName) of
-                pong -> ok;
+                pong ->
+                    %% We're connected.  Let's install our module into
+                    %% Dobby, so we can search.
+                    global:sync(),
+                    {module, _} = dby:install(fc_find_path);
                 pang ->
                     io:format(standard_error, "Cannot connect to Dobby node at ~p; exiting~n", [NodeName]),
                     halt(1)
