@@ -32,21 +32,28 @@ path_flow_rules(Ep1, Ep2) ->
     LastVertice = lists:last(VerticesEdges),
 
     %% Find IP and possibly netmask for the endpoints
-    {Ip1, Netmask1} = endpoint_ip_netmask(FirstVertice),
-    {Ip2, Netmask2} = endpoint_ip_netmask(LastVertice),
+    case {endpoint_ip_netmask(FirstVertice), endpoint_ip_netmask(LastVertice)} of
+        {{Ip1, Netmask1}, {Ip2, Netmask2}} ->
 
-    RestOfTrafficRules =
-        case {is_rest_of_traffic(FirstVertice), is_rest_of_traffic(LastVertice)} of
-            {false, false} ->
-                [];
-            {true, false} ->
-                flow_rules(VerticesEdges, Graph, {{0,0,0,0}, {0,0,0,0}}, {Ip2, Netmask2});
-            {false, true} ->
-                flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {{0,0,0,0}, {0,0,0,0}})
-        end,
+            RestOfTrafficRules =
+                case {is_rest_of_traffic(FirstVertice), is_rest_of_traffic(LastVertice)} of
+                    {false, false} ->
+                        [];
+                    {true, false} ->
+                        flow_rules(VerticesEdges, Graph, {{0,0,0,0}, {0,0,0,0}}, {Ip2, Netmask2});
+                    {false, true} ->
+                        flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {{0,0,0,0}, {0,0,0,0}})
+                end,
 
-    RestOfTrafficRules ++
-        flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2}).
+            RestOfTrafficRules ++
+                flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2});
+        %% If one or both of the endpoints don't have an IP address,
+        %% use hub rules instead.
+        {no_ip_address, _} ->
+            hub_flow_rules(Ep1, [Ep2]);
+        {_, no_ip_address} ->
+            hub_flow_rules(Ep1, [Ep2])
+    end.
 
 vertices_edges_path(Graph, Ep1, Ep2) ->
     Path = digraph:get_path(Graph, Ep1, Ep2),
@@ -88,11 +95,10 @@ flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
-flow_rules([{Port1, of_port, _}, part_of, {_Switch, of_switch, SwitchMetadata},
+flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
 	    part_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
            Endpoint1 = {Ip1, Netmask1}, Endpoint2 = {Ip2, Netmask2}) ->
     %% Add bidirectional flow rules.
-    SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
     FromPort1 = {in_port, fc_utils:id_to_port_no(Port1)},
     ToPort2 = {apply_actions, [{output, fc_utils:id_to_port_no(Port2), no_buffer}]},
     NetmaskBin1 = ip_to_bin(Netmask1),
@@ -172,7 +178,11 @@ endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin},
 endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin}}}) ->
     Netmask = {255, 255, 255, 255},
     {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
-    {Ip, Netmask}.
+    {Ip, Netmask};
+endpoint_ip_netmask({_Ep, endpoint, #{}}) ->
+    %% The given endpoint has no specified IP address.
+    no_ip_address.
+
 
 is_rest_of_traffic({_Ep, endpoint, #{<<"rest-of-traffic">> := #{value := true}}}) ->
     true;
@@ -224,9 +234,8 @@ bridge_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
 bridge_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
     bridge_points(Tail);
-bridge_points([{Port1, of_port, _}, part_of, {_Switch, of_switch, SwitchMetadata},
+bridge_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
               part_of | [{Port2, of_port, _} | _] = Tail]) ->
-    SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
     BridgeThere = {{SwitchId, Port1}, [Port2]},
     BridgeBack = {{SwitchId, Port2}, [Port1]},
     [BridgeThere, BridgeBack] ++ bridge_points(Tail).
@@ -265,8 +274,9 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
               _, Acc) ->
                   %% A flow rule.
                   case Matches of
-                      [{in_port, TheInPortNo}] when TheInPortNo =:= InPortNo ->
-                          %% Match the same inport we care about.
+                      [#{<<"match">> := <<"in_port">>,
+                         <<"value">> := TheInPortNo}] when TheInPortNo =:= InPortNo ->
+                          %% Match the same inport we care about, and nothing else.
                           %% This is the rule we want.
                           {stop, {Id, Matches, Instructions}};
                       _ ->
@@ -289,11 +299,12 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
               [{table_id, 0}, {cookie, unique_cookie()}]}};
         {Cookie, Matches, Instructions} ->
             ExistingOutports =
-                case lists:keyfind(apply_actions, 1, Instructions) of
-                    false ->
+                case [Instruction ||
+                         Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
+                    [] ->
                         [];
-                    {apply_actions, Actions} ->
-                        [OutPort || {output, OutPort, _} <- Actions]
+                    [#{<<"actions">> := Actions}] ->
+                        [OutPort || #{<<"action">> := <<"output">>, <<"port">> := OutPort} <- Actions]
                 end,
             NewOutPorts = lists:usort(lists:map(fun fc_utils:id_to_port_no/1, OutPorts)
                                       ++ ExistingOutports),

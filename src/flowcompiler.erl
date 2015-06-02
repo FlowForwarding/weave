@@ -31,13 +31,37 @@ setup_flow(Source, Destination)
       Destination,
       FlowModIds).
 
+lookup_dpids(FlowRules) ->
+    lists:map(fun lookup_dpid/1, FlowRules).
+
+lookup_dpid({DobbyId, OFVersion, FlowMod} = FlowRule) ->
+    case dby:search(
+           fun(Id, #{<<"datapath_id">> := #{value := DpId}}, [], _) when Id =:= DobbyId ->
+                   {stop, {ok, DpId}};
+              (Id, #{}, [], _) when Id =:= DobbyId ->
+                   {stop, {error, missing_datapath_id}}
+           end,
+           {error, switch_not_in_dobby},
+           DobbyId,
+           [{max_depth, 1}]) of
+        {ok, DpId} ->
+            {DpId, OFVersion, FlowMod};
+        {error, Error} ->
+            error(Error, [FlowRule])
+    end.
+
 send_flow_rules({Dpid, OFVersion, {Matches, Instr, Opts}}) when is_binary(Dpid) ->
     Msg = of_msg_lib:flow_add(OFVersion, Matches, Instr, Opts),
     {ok, noreply} = ofs_handler:sync_send(binary_to_list(Dpid), Msg),
     ok.
 
 main() ->
-    [JSONFileOrNodeName, SourceS, DestinationS | SwitchesS] = init:get_plain_arguments(),
+    case init:get_plain_arguments() of
+        ["-demo", JSONFileOrNodeName, SourceS, DestinationS | SwitchesS] ->
+            IsDemo = true;
+        [JSONFileOrNodeName, SourceS, DestinationS | SwitchesS] ->
+            IsDemo = false
+    end,
     %% If any switches are specified, don't listen for connections.
     application:load(of_driver),
     SwitchesS =:= [] orelse application:set_env(of_driver, listen, false),
@@ -52,7 +76,10 @@ main() ->
                     %% We're connected.  Let's install our module into
                     %% Dobby, so we can search.
                     global:sync(),
-                    {module, _} = dby:install(fc_find_path);
+                    {module, _} = dby:install(?MODULE),
+                    {module, _} = dby:install(fc_find_path),
+                    {module, _} = dby:install(dobby_oflib),
+                    {module, _} = dby:install(dofl_identifier);
                 pang ->
                     io:format(standard_error, "Cannot connect to Dobby node at ~p; exiting~n", [NodeName]),
                     halt(1)
@@ -87,28 +114,35 @@ main() ->
             FlowRules = fc_find_path:path_flow_rules(Source, Destination)
     end,
 
-    io:format("Sending flow rules:\n"),
+    io:format("Generated flow rules:\n"),
     lists:foreach(
-      fun({Dpid, _, {Matches, Instr, Opts}}) ->
+      fun({Id, _, {Matches, Instr, Opts}}) ->
               io:format("~23s: Match: ~lp\n"
                         "~23s  Instr: ~lp\n"
                         "~23s  Opts:  ~lp\n",
-                        [Dpid, Matches,
+                        [Id, Matches,
                          "", Instr,
                          "", Opts])
       end, FlowRules),
-    lists:foreach(fun connect_to_switch/1, SwitchesS),
-    %% Now that we know which switches are affected by the flow rules,
-    %% ensure that they are connected.
-    case lists:foldl(fun wait_for_switch/2, 10, lists:ukeysort(1, FlowRules)) of
-        0 ->
-            io:format(standard_error, "Timeout while waiting for switches\n", []),
-            halt(1);
-        Remaining when is_integer(Remaining) ->
+    case IsDemo of
+        false ->
+            DpidFlowRules = lookup_dpids(FlowRules),
+            lists:foreach(fun connect_to_switch/1, SwitchesS),
+            %% Now that we know which switches are affected by the flow rules,
+            %% ensure that they are connected.
+            case lists:foldl(fun wait_for_switch/2, 10, lists:ukeysort(1, DpidFlowRules)) of
+                0 ->
+                    io:format(standard_error, "Timeout while waiting for switches\n", []),
+                    halt(1);
+                Remaining when is_integer(Remaining) ->
+                    ok
+            end,
+            lists:foreach(fun send_flow_rules/1, DpidFlowRules);
+        true ->
+            %% Don't send flow rules to switches, only to Dobby.
             ok
     end,
 
-    lists:foreach(fun send_flow_rules/1, FlowRules),
     %% TODO: publish rules to Dobby, regardless of whether they are
     %% "normal" or "hub" rules.
 
