@@ -115,6 +115,7 @@ mk_json([{lm_ph, PhId, PhysicalPortsAndBridges, VirtualPorts} | Rest], Acc) ->
                PpId = PhId ++ "/" ++ PpSuffix,
                VpId = PhId ++ "/" ++ VpSuffix,
                [identifier(PpId, "lm_pp"),
+                connection(PpId, PhId, "part_of"),
                 identifier(VpId, "lm_vp"),
                 connection(PpId, VpId, "part_of")]
            end || {PpSuffix, VpSuffix} <- PhysicalPortsAndBridges]) ++
