@@ -237,7 +237,7 @@ combine_bridge_points([{Key = {_SwitchId, _InPort}, OutPorts} | Rest]) ->
     %% combination, keep merging them into one entry.
     case lists:keytake(Key, 1, Rest) of
         {value, {Key, NewOutPorts}, NewRest} ->
-            combine_bridge_points([{Key, OutPorts ++ NewOutPorts} | NewRest]);
+            combine_bridge_points([{Key, lists:usort(OutPorts ++ NewOutPorts)} | NewRest]);
         false ->
-            [{Key, OutPorts}] ++ combine_bridge_points(Rest)
+            [{Key, lists:usort(OutPorts)}] ++ combine_bridge_points(Rest)
     end.
