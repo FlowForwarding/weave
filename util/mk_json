@@ -10,6 +10,10 @@
 % {connect, Switch1, Port1, Switch2, Port2}.
 % {gateway_bridge, Id, Switch, Port}.
 % {gateway_mask, Id, Ip, NetMask, Switch, Port}.
+% {lm_ph, Id, PhysicalPortsAndBridges, VirtualPorts}.
+% {lm_patchp, HostId, ConnectedPorts}.
+% {lm_vh, PhysicalHost, VirtualHostId, VirtualPorts}.
+% {bound_to, From, To}.
 
 % helper macros (they could also be functions)
 -define(q(S), [$", S, $"]).
@@ -99,6 +103,50 @@ mk_json([{gateway_mask, Id, Ip, NetMask, Switch, Port} | Rest], Acc) ->
             endpoint(Id, [{"ip", ?q(Ip)}, {"netmask", ?q(NetMask)}, {"use_bridge_rules", "false"}]), $,,
             connected_to(Id, ?port(Switch, Port))
         ]| Acc]);
+mk_json([{lm_ph, PhId, PhysicalPortsAndBridges, VirtualPorts} | Rest], Acc) ->
+    %% Physical host
+    %%
+    %% PhysicalPortsAndBrigdes is a list of tuples,
+    %% {PhysicalPort, VirtualPort}.  The VirtualPort should be
+    %% a bridge that the PhysicalPort is part of.
+    %%
+    %% VirtualPorts is a list of virtual ports that are not
+    %% directly connected to anything.
+    mk_json(Rest,
+        [identifier(PhId, "lm_ph")] ++
+        lists:append(
+          [begin
+               PpId = PhId ++ "/" ++ PpSuffix,
+               VpId = PhId ++ "/" ++ VpSuffix,
+               [identifier(PpId, "lm_pp"),
+                connection(PpId, PhId, "part_of"),
+                identifier(VpId, "lm_vp"),
+                connection(PpId, VpId, "part_of")]
+           end || {PpSuffix, VpSuffix} <- PhysicalPortsAndBridges]) ++
+        [identifier(PhId ++ "/" ++ VpSuffix, "lm_vp") || VpSuffix <- VirtualPorts] ++
+        Acc);
+mk_json([{lm_patchp, HostId, Connected} | Rest], Acc) ->
+    PatchPId = HostId ++ "/PatchP",
+    mk_json(Rest,
+        [identifier(PatchPId, "lm_patchp",
+                    [{"wires", [${, $\n,
+                                comma([?qkv(?port(HostId, Port), "null")
+                                       || Port <- Connected]),
+                                $\n, $}, $\n]}])] ++
+        [connection(PatchPId, HostId ++ "/" ++ Suffix, "part_of") || Suffix <- Connected] ++
+        Acc);
+mk_json([{lm_vh, PhId, VhSuffix, VirtualPorts} | Rest], Acc) ->
+    VhId = PhId ++ "/" ++ VhSuffix,
+    mk_json(Rest,
+        [identifier(VhId, "lm_vh")] ++
+        lists:append(
+          [[identifier(VhId ++ "/" ++ VpSuffix, "lm_vp"),
+            connection(VhId ++ "/" ++ VpSuffix, VhId, "part_of")]
+           || VpSuffix <- VirtualPorts])
+        ++ Acc);
+mk_json([{bound_to, From, To} | Rest], Acc) ->
+    mk_json(Rest,
+        [connection(From, To, "bound_to")] ++ Acc);
 mk_json([Term | _], _) ->
     % invalid Erlang term
     io:format("Unknown term: ~p~n", [Term]),
@@ -134,7 +182,7 @@ port(Id, Port) ->
     PortName = ?port(Id, Port),
     [
         identifier(PortName, "of_port"), $,,
-        connection(Id, PortName, "port_of")
+        connection(Id, PortName, "part_of")
     ].
 
 % generate a "connected_to" link

@@ -32,21 +32,28 @@ path_flow_rules(Ep1, Ep2) ->
     LastVertice = lists:last(VerticesEdges),
 
     %% Find IP and possibly netmask for the endpoints
-    {Ip1, Netmask1} = endpoint_ip_netmask(FirstVertice),
-    {Ip2, Netmask2} = endpoint_ip_netmask(LastVertice),
+    case {endpoint_ip_netmask(FirstVertice), endpoint_ip_netmask(LastVertice)} of
+        {{Ip1, Netmask1}, {Ip2, Netmask2}} ->
 
-    RestOfTrafficRules =
-        case {is_rest_of_traffic(FirstVertice), is_rest_of_traffic(LastVertice)} of
-            {false, false} ->
-                [];
-            {true, false} ->
-                flow_rules(VerticesEdges, Graph, {{0,0,0,0}, {0,0,0,0}}, {Ip2, Netmask2});
-            {false, true} ->
-                flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {{0,0,0,0}, {0,0,0,0}})
-        end,
+            RestOfTrafficRules =
+                case {is_rest_of_traffic(FirstVertice), is_rest_of_traffic(LastVertice)} of
+                    {false, false} ->
+                        [];
+                    {true, false} ->
+                        flow_rules(VerticesEdges, Graph, {{0,0,0,0}, {0,0,0,0}}, {Ip2, Netmask2});
+                    {false, true} ->
+                        flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {{0,0,0,0}, {0,0,0,0}})
+                end,
 
-    RestOfTrafficRules ++
-        flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2}).
+            RestOfTrafficRules ++
+                flow_rules(VerticesEdges, Graph, {Ip1, Netmask1}, {Ip2, Netmask2});
+        %% If one or both of the endpoints don't have an IP address,
+        %% use hub rules instead.
+        {no_ip_address, _} ->
+            hub_flow_rules(Ep1, [Ep2]);
+        {_, no_ip_address} ->
+            hub_flow_rules(Ep1, [Ep2])
+    end.
 
 vertices_edges_path(Graph, Ep1, Ep2) ->
     Path = digraph:get_path(Graph, Ep1, Ep2),
@@ -61,7 +68,15 @@ vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
     {Id2, #{}} = digraph:vertex(Graph, Id2),
     %% TODO: is there a nicer way to get the edge between Id1 and Id2?
     [Edge] = edges_between(Id1, Id2, Graph),
-    {Edge, Id1, Id2, #{<<"type">> := #{value := EdgeType}}} = digraph:edge(Graph, Edge),
+    {Edge, Id1, Id2, #{<<"type">> := #{value := ActualEdgeType}}} = digraph:edge(Graph, Edge),
+    EdgeType =
+        case ActualEdgeType of
+            <<"port_of">> ->
+                %% Accept "port_of" as synonym for "part_of" for now.
+                <<"part_of">>;
+            _ ->
+                ActualEdgeType
+        end,
     [{Id1, binary_to_atom(Type1, utf8), Metadata1}, binary_to_atom(EdgeType, utf8)]
 	++ vertices_edges(Tail, Graph).
 
@@ -80,11 +95,10 @@ flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
-flow_rules([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
-	    port_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
+flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
+	    part_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
            Endpoint1 = {Ip1, Netmask1}, Endpoint2 = {Ip2, Netmask2}) ->
     %% Add bidirectional flow rules.
-    SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
     FromPort1 = {in_port, fc_utils:id_to_port_no(Port1)},
     ToPort2 = {apply_actions, [{output, fc_utils:id_to_port_no(Port2), no_buffer}]},
     NetmaskBin1 = ip_to_bin(Netmask1),
@@ -164,7 +178,11 @@ endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin},
 endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin}}}) ->
     Netmask = {255, 255, 255, 255},
     {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
-    {Ip, Netmask}.
+    {Ip, Netmask};
+endpoint_ip_netmask({_Ep, endpoint, #{}}) ->
+    %% The given endpoint has no specified IP address.
+    no_ip_address.
+
 
 is_rest_of_traffic({_Ep, endpoint, #{<<"rest-of-traffic">> := #{value := true}}}) ->
     true;
@@ -205,14 +223,7 @@ hub_flow_rules(SourceEndpoint, TargetEndpoints) ->
     BridgeHere = lists:append(lists:map(fun bridge_points/1, Paths)),
     %% Combine them into one rule for each switch+inport combination.
     Combined = combine_bridge_points(BridgeHere),
-    lists:map(
-      fun({{SwitchId, InPort}, OutPorts}) ->
-              {SwitchId, ?OF_VERSION,
-               {[{in_port, fc_utils:id_to_port_no(InPort)}],
-                [{apply_actions,
-                  [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
-                [{table_id, 0}, {cookie, unique_cookie()}]}}
-      end, Combined).
+    lists:map(fun hub_flow_rule/1, Combined).
 
 bridge_points([{_, endpoint, _}]) ->
     %% Nothing more to do.
@@ -223,9 +234,8 @@ bridge_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
 bridge_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
     bridge_points(Tail);
-bridge_points([{Port1, of_port, _}, port_of, {_Switch, of_switch, SwitchMetadata},
-              port_of | [{Port2, of_port, _} | _] = Tail]) ->
-    SwitchId = maps:get(value, maps:get(<<"datapath_id">>, SwitchMetadata)),
+bridge_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
+              part_of | [{Port2, of_port, _} | _] = Tail]) ->
     BridgeThere = {{SwitchId, Port1}, [Port2]},
     BridgeBack = {{SwitchId, Port2}, [Port1]},
     [BridgeThere, BridgeBack] ++ bridge_points(Tail).
@@ -240,4 +250,67 @@ combine_bridge_points([{Key = {_SwitchId, _InPort}, OutPorts} | Rest]) ->
             combine_bridge_points([{Key, lists:usort(OutPorts ++ NewOutPorts)} | NewRest]);
         false ->
             [{Key, lists:usort(OutPorts)}] ++ combine_bridge_points(Rest)
+    end.
+
+hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
+    InPortNo = fc_utils:id_to_port_no(InPort),
+    %% First, check if there is already a flow rule with the same
+    %% match.
+    ExistingFlowRule =
+        dby:search(
+          fun(Id, _NodeMetadata, [], Acc) when Id =:= SwitchId ->
+                  %% Starting point. Go on.
+                  {continue, Acc};
+             (_, #{<<"type">> := #{value := <<"of_flow_table">>},
+                   <<"table_no">> := #{value := 0}},
+              [{TheSwitchId, _, #{<<"type">> := #{value := <<"of_resource">>}}}],
+              Acc) when TheSwitchId =:= SwitchId ->
+                  %% Flow table 0, linked to the switch with an of_resource link.
+                  %% Go on and find its flow rules.
+                  {continue, Acc};
+             (Id, #{<<"type">> := #{value := <<"of_flow_mod">>},
+                    <<"matches">> := #{value := Matches},
+                    <<"instructions">> := #{value := Instructions}},
+              _, Acc) ->
+                  %% A flow rule.
+                  case Matches of
+                      [#{<<"match">> := <<"in_port">>,
+                         <<"value">> := TheInPortNo}] when TheInPortNo =:= InPortNo ->
+                          %% Match the same inport we care about, and nothing else.
+                          %% This is the rule we want.
+                          {stop, {Id, Matches, Instructions}};
+                      _ ->
+                          %% Not the rule we're looking for.
+                          {skip, Acc}
+                  end;
+             (_, _, _, Acc) ->
+                  %% Skip everything else.
+                  {skip, Acc}
+          end,
+          not_found,
+          SwitchId,
+          [depth, {max_depth, 2}]),
+    case ExistingFlowRule of
+        not_found ->
+            {SwitchId, ?OF_VERSION,
+             {[{in_port, InPortNo}],
+              [{apply_actions,
+                [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
+              [{table_id, 0}, {cookie, unique_cookie()}]}};
+        {Cookie, Matches, Instructions} ->
+            ExistingOutports =
+                case [Instruction ||
+                         Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
+                    [] ->
+                        [];
+                    [#{<<"actions">> := Actions}] ->
+                        [OutPort || #{<<"action">> := <<"output">>, <<"port">> := OutPort} <- Actions]
+                end,
+            NewOutPorts = lists:usort(lists:map(fun fc_utils:id_to_port_no/1, OutPorts)
+                                      ++ ExistingOutports),
+            {SwitchId, ?OF_VERSION,
+             {Matches,
+              [{apply_actions,
+                [{output, OutPort, no_buffer} || OutPort <- NewOutPorts]}],
+              [{table_id, 0}, {cookie, Cookie}]}}
     end.

@@ -1,0 +1,15 @@
+{lm_ph, "PH1",
+     [{"PP1", "VP1"}, {"PP2", "VP2"}],
+     ["VP1.1", "VP1.2"]}.
+{lm_patchp, "PH1", ["PP1", "PP2", "VP1.1", "VP1.2"]}.
+{lm_vh, "PH1", "VH1", ["VP1", "VP2"]}.
+{bound_to, "PH1/VP1.1", "PH1/VH1/VP1"}.
+{bound_to, "PH1/VP1.2", "PH1/VH1/VP2"}.
+{of_switch, "PH1/VH1/OFS1", "00:01:02:03:04:05:06:07",
+ ["OFP1", "OFP2"]}.
+{lm_patchp, "PH1/VH1", ["VP1", "VP2", "OFS1/OFP1", "OFS1/OFP2"]}.
+{bound_to, "PH1/VH1/OFS1/OFP1", "PH1/VH1/VP1"}.
+{bound_to, "PH1/VH1/OFS1/OFP2", "PH1/VH1/VP2"}.
+
+{endpoint, "Pi1", "1.2.3.4", "PH1", "PP1"}.
+{endpoint, "Pi2", "1.2.3.5", "PH1", "PP2"}.

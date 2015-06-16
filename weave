@@ -10,8 +10,9 @@ if [ ! -e "$CONFIG_FILE" ]; then
 fi
 
 if [ $# -lt 3 ]; then
-    echo "Usage: $0 JSON-FILE SOURCE DESTINATION [SWITCH ...]" >&2
-    echo "where JSON-FILE is a JSON file containing topology data," >&2
+    echo "Usage: $0 [-demo] JSON-FILE-OR-NODE SOURCE DESTINATION [SWITCH ...]" >&2
+    echo "where JSON-FILE-OR-NODE is either a JSON file containing topology data," >&2
+    echo "      or the node name of a running Dobby node," >&2
     echo "  and SOURCE is the name of the source endpoint," >&2
     echo "  and DESTINATION is the name of the destination endpoint," >&2
     echo "  and SWITCH is zero or more switches to connect to." >&2
@@ -26,9 +27,14 @@ if [ $# -lt 3 ]; then
     echo "case, Weave will create flow rules that forward all packets from" >&2
     echo "SOURCE to each DESTINATION, and all packets from each DESTINATION" >&2
     echo "to SOURCE, without regards to source and destination IP addresses." >&2
+    echo "" >&2
+    echo "If the -demo flag is specified, publish flow rules to Dobby but do not" >&2
+    echo "install them in the switches." >&2
     exit 1
 fi
 
 erl -pa ebin -pa deps/*/ebin deps/loom/simple_ne/apps/*/ebin \
+    -name weave@127.0.0.1 \
+    -setcookie dobby \
     -config "$CONFIG_FILE" \
-    -noinput -eval "flowcompiler:main()" -- "$@"
+    -noinput -eval "flowcompiler:main()" -extra "$@"
