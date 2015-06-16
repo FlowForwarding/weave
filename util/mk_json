@@ -10,6 +10,10 @@
 % {connect, Switch1, Port1, Switch2, Port2}.
 % {gateway_bridge, Id, Switch, Port}.
 % {gateway_mask, Id, Ip, NetMask, Switch, Port}.
+% {lm_ph, Id, PhysicalPortsAndBridges, VirtualPorts}.
+% {lm_patchp, HostId, ConnectedPorts}.
+% {lm_vh, PhysicalHost, VirtualHostId, VirtualPorts}.
+% {bound_to, From, To}.
 
 % helper macros (they could also be functions)
 -define(q(S), [$", S, $"]).
