@@ -166,9 +166,33 @@ edges_between(Id1, Id2, Graph) ->
     [Edge || Edge <- OutEdges1, lists:member(Edge, InEdges2)].
 
 unique_cookie() ->
+    %% Create a unique cookie for each flow rule.  erlang:now() should
+    %% be unique enough.
     {A,B,C} = erlang:now(),
     N = (A * 1000000 + B) * 1000000 + C,
-    <<N:64>>.
+
+    %% We could just create a binary from this number:
+    %% <<N:64>>
+    %% but it would be nicer if it were printable.
+    %% Let's use the 94 printable ASCII characters from ! to ~.
+    %% The result will fit into 8 such characters until year 2163.
+    encode94(N).
+
+encode94(N) ->
+    First = $!,
+    Last = $~,
+    Base = Last - First + 1,
+
+    Quot = N div Base,
+    Rem = N rem Base,
+
+    Digit = First + Rem,
+    case Quot of
+        0 ->
+            <<Digit>>;
+        _ ->
+            <<(encode94(Quot))/binary, Digit>>
+    end.
 
 endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin},
                                       <<"netmask">> := #{value := NetmaskBin}}}) ->
