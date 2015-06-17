@@ -314,13 +314,14 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
           not_found,
           SwitchId,
           [depth, {max_depth, 2}]),
+    DefaultPriority = 50,
     case ExistingFlowRule of
         not_found ->
             {SwitchId, ?OF_VERSION,
              {[{in_port, InPortNo}],
               [{apply_actions,
                 [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
-              [{table_id, 0}, {cookie, unique_cookie()}]}};
+              [{table_id, 0}, {cookie, unique_cookie()}, {priority, DefaultPriority}]}};
         {Cookie, Matches, Instructions} ->
             ExistingOutports =
                 case [Instruction ||
@@ -336,5 +337,6 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
              {Matches,
               [{apply_actions,
                 [{output, OutPort, no_buffer} || OutPort <- NewOutPorts]}],
-              [{table_id, 0}, {cookie, Cookie}]}}
+              %% XXX: should we take priority of existing rule into account?
+              [{table_id, 0}, {cookie, Cookie}, {priority, DefaultPriority}]}}
     end.
