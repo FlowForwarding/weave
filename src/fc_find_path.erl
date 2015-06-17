@@ -121,6 +121,7 @@ flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata}
       %% XXX: In principle, we should broadcast this packet.
       [ToPort2],
       [{table_id, 0},
+       Priority,
        {cookie, unique_cookie()}]},
     ArpPacketsThere = {
       [FromPort1,
@@ -146,6 +147,7 @@ flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata}
       %% XXX: ditto
       [ToPort1],
       [{table_id, 0},
+       Priority,
        {cookie, unique_cookie()}]},
     ArpPacketsBack = {
       [FromPort2,
