@@ -124,6 +124,47 @@ main() ->
                          "", Instr,
                          "", Opts])
       end, FlowRules),
+
+    io:format("\n\nFlow rule summary:\n"),
+    io:format("~8s ~25s ~3s ~12s ~10s ~4s~n",
+              ["Cookie", "Switch datapath id", "In", "Out", "Matches", "Prio"]),
+    lists:foreach(
+      fun({DpId, _, {Matches, Instr, Opts}}) ->
+              Cookie = proplists:get_value(cookie, Opts, <<"???">>),
+              InPort = proplists:get_value(in_port, Matches, "???"),
+              case lists:keyfind(apply_actions, 1, Instr) of
+                  {apply_actions, Actions} ->
+                      OutPorts = [OutPort || {output, OutPort, _} <- Actions];
+                  false ->
+                      OutPorts = []
+              end,
+              OutPortsS = string:join(
+                            lists:map(
+                              fun(controller) ->
+                                      %% Shorten this one.
+                                      "ctl";
+                                 (Integer) when is_integer(Integer) ->
+                                      integer_to_list(Integer);
+                                 (Atom) when is_atom(Atom) ->
+                                      %% Other reserved ports
+                                      atom_to_list(Atom)
+                              end, OutPorts), ","),
+              %% 16#ffff is the default priority from of_msg_lib
+              Priority = proplists:get_value(priority, Opts, 16#ffff),
+              AllMatchTypes =
+                  [{ipv4_src, "IPv4"},
+                   {ipv4_dst, "IPv4"},
+                   {arp_tpa, "ARP"}],
+              MatchTypes =
+                  lists:usort(
+                    [Type || {Key, Type} <- AllMatchTypes,
+                             lists:keymember(Key, 1, Matches)]),
+              MatchTypesS = string:join(MatchTypes, ","),
+              io:format(
+                "~8s ~25s ~3p ~12s ~10s ~4b~n",
+                [Cookie, DpId, InPort, OutPortsS, MatchTypesS, Priority])
+      end, FlowRules),
+
     case IsDemo of
         false ->
             DpidFlowRules = lookup_dpids(FlowRules),
