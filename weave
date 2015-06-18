@@ -33,7 +33,7 @@ if [ $# -lt 3 ]; then
     echo "If the -demo flag is specified, publish flow rules to Dobby but do not" >&2
     echo "install them in the switches." >&2
     echo "------------------------------------------------------------" >&2
-    echo "Or: $0 -tap DOBBY-NODE SOURCE DESTINATION [SWITCH ...]" >&2
+    echo "Or: $0 -tap JSON-FILE-OR-NODE SOURCE DESTINATION [SWITCH ...]" >&2
     echo "" >&2
     echo "Find the flow between SOURCE and DESTINATION, and add a" >&2
     echo "'send to controller' action to each hop." >&2

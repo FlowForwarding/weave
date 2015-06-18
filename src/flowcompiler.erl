@@ -65,8 +65,8 @@ main() ->
 
 parse_arguments(Arguments) ->
     case Arguments of
-        ["-tap", NodeName, SourceS, DestinationS | SwitchesS] ->
-            {tap, NodeName, SourceS, DestinationS, SwitchesS};
+        ["-tap", JSONFileOrNodeName, SourceS, DestinationS | SwitchesS] ->
+            {tap, JSONFileOrNodeName, SourceS, DestinationS, SwitchesS};
         ["-demo", JSONFileOrNodeName, SourceS, DestinationS | SwitchesS] ->
             IsDemo = true,
             {weave, JSONFileOrNodeName, SourceS, DestinationS, SwitchesS, IsDemo};
@@ -81,29 +81,7 @@ weave(JSONFileOrNodeName, SourceS, DestinationS, SwitchesS, IsDemo) ->
     SwitchesS =:= [] orelse application:set_env(of_driver, listen, false),
 
     {ok, _} = application:ensure_all_started(flowcompiler),
-    case lists:member($@, JSONFileOrNodeName) of
-        true ->
-            %% This looks like a node name
-            NodeName = list_to_atom(JSONFileOrNodeName),
-            connect_to_dobby(NodeName);
-        false ->
-            %% This looks like a JSON file name.  Let's import it into
-            %% a local Dobby instance.
-            JSONFile = JSONFileOrNodeName,
-            {ok, _} = application:ensure_all_started(dobby),
-            %% Wait for Dobby's Mnesia table.
-            ok = mnesia:wait_for_tables([identifier], 10000),
-
-            %% Import the JSON file.  Assume that it's in the legacy format
-            %% for now.
-            case dby_bulk:import(json0, JSONFile) of
-                ok -> ok;
-                {error, ImportError} ->
-                    io:format(standard_error, "Cannot import JSON file ~s: ~p",
-                              [JSONFile, ImportError]),
-                    halt(1)
-            end
-    end,
+    connect_or_load_json(JSONFileOrNodeName),
 
     Source = list_to_binary(SourceS),
     case fc_find_path:use_bridge_rules(Source) of
@@ -163,6 +141,33 @@ weave(JSONFileOrNodeName, SourceS, DestinationS, SwitchesS, IsDemo) ->
     %% Attempt to flush Mnesia tables
     mnesia:stop(),
     halt(0).
+
+connect_or_load_json(JSONFileOrNodeName) ->
+    %% There are two modes of operation: either connect to an existing
+    %% Dobby node, or start it locally and import a JSON file.
+    case lists:member($@, JSONFileOrNodeName) of
+        true ->
+            %% This looks like a node name
+            NodeName = list_to_atom(JSONFileOrNodeName),
+            connect_to_dobby(NodeName);
+        false ->
+            %% This looks like a JSON file name.  Let's import it into
+            %% a local Dobby instance.
+            JSONFile = JSONFileOrNodeName,
+            {ok, _} = application:ensure_all_started(dobby),
+            %% Wait for Dobby's Mnesia table.
+            ok = mnesia:wait_for_tables([identifier], 10000),
+
+            %% Import the JSON file.  Assume that it's in the legacy format
+            %% for now.
+            case dby_bulk:import(json0, JSONFile) of
+                ok -> ok;
+                {error, ImportError} ->
+                    io:format(standard_error, "Cannot import JSON file ~s: ~p",
+                              [JSONFile, ImportError]),
+                    halt(1)
+            end
+    end.
 
 connect_to_dobby(NodeName) ->
     case net_adm:ping(NodeName) of
@@ -262,15 +267,14 @@ flow_rule_summary({DpId, _, {Matches, Instr, Opts}}) ->
       "~8s ~25s ~3p ~12s ~10s ~4b~n",
       [Cookie, DpId, InPort, OutPortsS, MatchTypesS, Priority]).
 
-tap(NodeNameS, SourceS, DestinationS, SwitchesS) ->
+tap(JSONFileOrNodeName, SourceS, DestinationS, SwitchesS) ->
     %% If any switches are specified, don't listen for connections.
     application:load(of_driver),
     SwitchesS =:= [] orelse application:set_env(of_driver, listen, false),
 
     {ok, _} = application:ensure_all_started(flowcompiler),
 
-    NodeName = list_to_atom(NodeNameS),
-    connect_to_dobby(NodeName),
+    connect_or_load_json(JSONFileOrNodeName),
 
     FlowRules = fc_find_path:tap_flow_rules(
                   list_to_binary(SourceS),
