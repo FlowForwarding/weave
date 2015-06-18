@@ -7,7 +7,9 @@
 
 -export([use_bridge_rules/1,
          path_flow_rules/2,
-         hub_flow_rules/2]).
+         hub_flow_rules/2,
+         tap_flow_rules/2
+        ]).
 
 %% TODO: adapt to actual protocol version
 -define(OF_VERSION, 4).
@@ -341,4 +343,121 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
                 [{output, OutPort, no_buffer} || OutPort <- NewOutPorts]}],
               %% XXX: should we take priority of existing rule into account?
               [{table_id, 0}, {cookie, Cookie}, {priority, DefaultPriority}]}}
+    end.
+
+tap_flow_rules(SourceEndpoint, TargetEndpoint) ->
+    Path = case dobby_oflib:get_path(SourceEndpoint, TargetEndpoint) of
+               {ok, Graph} ->
+                   vertices_edges_path(Graph, SourceEndpoint, TargetEndpoint);
+               {error, no_path} ->
+                   io:format(standard_error,
+                             "No path found between '~s' and '~s'~n",
+                             [SourceEndpoint, TargetEndpoint]),
+                   error({no_path, SourceEndpoint, TargetEndpoint})
+           end,
+    io:format("Got path: ~p~n", [Path]),
+
+    TapPoints = tap_points(Path),
+    io:format("Got tap points: ~p~n", [TapPoints]),
+
+    lists:append(lists:map(fun tap_flow_rule/1, TapPoints)).
+
+tap_points([{_, endpoint, _}]) ->
+    %% Nothing more to do.
+    [];
+tap_points([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+    tap_points(Tail);
+tap_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+    tap_points(Tail);
+tap_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
+    tap_points(Tail);
+tap_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
+              part_of | [{Port2, of_port, _} | _] = Tail]) ->
+    Tap = {SwitchId, Port1, Port2},
+    [Tap] ++ tap_points(Tail).
+
+tap_flow_rule({SwitchId, InPort, OutPort}) when is_binary(InPort) ->
+    InPortNo = fc_utils:id_to_port_no(InPort),
+    OutPortNo = fc_utils:id_to_port_no(OutPort),
+    %% First, check if there is already a flow rule with the same
+    %% match.
+    ExistingFlowRule =
+        dby:search(
+          fun(Id, _NodeMetadata, [], Acc) when Id =:= SwitchId ->
+                  %% Starting point. Go on.
+                  {continue, Acc};
+             (_, #{<<"type">> := #{value := <<"of_flow_table">>},
+                   <<"table_no">> := #{value := 0}},
+              [{TheSwitchId, _, #{<<"type">> := #{value := <<"of_resource">>}}}],
+              Acc) when TheSwitchId =:= SwitchId ->
+                  %% Flow table 0, linked to the switch with an of_resource link.
+                  %% Go on and find its flow rules.
+                  {continue, Acc};
+             (Id, #{<<"type">> := #{value := <<"of_flow_mod">>},
+                    <<"matches">> := #{value := Matches},
+                    <<"instructions">> := #{value := Instructions}},
+              _, Acc) ->
+                  %% A flow rule.
+                  case Matches of
+                      [#{<<"match">> := <<"in_port">>,
+                         <<"value">> := TheInPortNo}] when TheInPortNo =:= InPortNo ->
+                          %% Match the same inport we care about, and nothing else.
+                          %% Check that it outputs to the right port.
+                          case [Instruction ||
+                                   Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
+                              [] ->
+                                  %% No "apply actions" instruction.  Not interesting.
+                                  {skip, Acc};
+                              [#{<<"actions">> := Actions}] ->
+                                  OutPorts = [ThisOutPort ||
+                                                 #{<<"action">> := <<"output">>, <<"port">> := ThisOutPort} <- Actions],
+                                  case lists:member(OutPortNo, OutPorts) of
+                                      true ->
+                                          %% Output port matches as
+                                          %% well.  This is the rule
+                                          %% we want to tap.
+                                          {stop, {Id, Matches, Instructions}};
+                                      false ->
+                                          %% No, the output port doesn't match.
+                                          {skip, Acc}
+                                  end
+                          end;
+                      _ ->
+                          %% Not the rule we're looking for.
+                          {skip, Acc}
+                  end;
+             (_, _, _, Acc) ->
+                  %% Skip everything else.
+                  {skip, Acc}
+          end,
+          not_found,
+          SwitchId,
+          [depth, {max_depth, 2}]),
+    DefaultPriority = 50,
+    case ExistingFlowRule of
+        not_found ->
+            io:format(standard_error,
+                      "Expected flow rule in switch ~s from port ~p to port ~p, but none found~n",
+                      [SwitchId, InPort, OutPort]),
+            [];
+        {Cookie, Matches, Instructions} ->
+            ExistingOutports =
+                case [Instruction ||
+                         Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
+                    [] ->
+                        [];
+                    [#{<<"actions">> := Actions}] ->
+                        [TheOutPort || #{<<"action">> := <<"output">>, <<"port">> := TheOutPort} <- Actions]
+                end,
+            NewOutPorts = lists:usort([controller] ++ ExistingOutports),
+            DecodedMatches = lists:map(
+                               fun(#{<<"match">> := Field, <<"value">> := Value}) ->
+                                       {binary_to_atom(Field, utf8), Value}
+                               end, Matches),
+            [{SwitchId, ?OF_VERSION,
+              {DecodedMatches,
+               [{apply_actions,
+                 [{output, TheOutPort, no_buffer} || TheOutPort <- NewOutPorts]}],
+               %% XXX: should we take priority of existing rule into account?
+               [{table_id, 0}, {cookie, Cookie}, {priority, DefaultPriority}]}}]
     end.

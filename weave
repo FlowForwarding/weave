@@ -17,6 +17,8 @@ if [ $# -lt 3 ]; then
     echo "  and DESTINATION is the name of the destination endpoint," >&2
     echo "  and SWITCH is zero or more switches to connect to." >&2
     echo "" >&2
+    echo "Create a bidirectional flow between SOURCE and DESTINATION." >&2
+    echo "" >&2
     echo "If no SWITCH is specified, Weave will wait for the switches" >&2
     echo "to connect to it on port 6653.  Each SWITCH may be either a" >&2
     echo "hostname or an IP address, optionally followed by a colon" >&2
@@ -30,6 +32,11 @@ if [ $# -lt 3 ]; then
     echo "" >&2
     echo "If the -demo flag is specified, publish flow rules to Dobby but do not" >&2
     echo "install them in the switches." >&2
+    echo "------------------------------------------------------------" >&2
+    echo "Or: $0 -tap DOBBY-NODE SOURCE DESTINATION [SWITCH ...]" >&2
+    echo "" >&2
+    echo "Find the flow between SOURCE and DESTINATION, and add a" >&2
+    echo "'send to controller' action to each hop." >&2
     exit 1
 fi
 
