@@ -107,7 +107,8 @@ flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata}
     NetmaskBin2 = ip_to_bin(Netmask2),
     %% The priority of the rule is the length of the shortest netmask.
     %% TODO: look for guidance in the JSON file.
-    Priority = {priority, min(netmask_length(NetmaskBin1), netmask_length(NetmaskBin2))},
+%%SN    Priority = {priority, min(netmask_length(NetmaskBin1), netmask_length(NetmaskBin2))},
+    Priority = {priority, 51},
     IpTrafficThere = {
       [FromPort1] ++
           %% If the netmask is all zeroes, there is no point in matching anything.
