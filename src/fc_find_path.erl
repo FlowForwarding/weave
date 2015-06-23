@@ -327,7 +327,8 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
               [{apply_actions,
                 [{output, fc_utils:id_to_port_no(OutPort), no_buffer} || OutPort <- OutPorts]}],
               [{table_id, 0}, {cookie, unique_cookie()}, {priority, DefaultPriority}]}};
-        {Cookie, Matches, Instructions} ->
+        {EncodedCookie, Matches, Instructions} ->
+            Cookie = decode_cookie(EncodedCookie),
             ExistingOutports =
                 case [Instruction ||
                          Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
@@ -338,8 +339,9 @@ hub_flow_rule({{SwitchId, InPort}, OutPorts}) when is_binary(InPort) ->
                 end,
             NewOutPorts = lists:usort(lists:map(fun fc_utils:id_to_port_no/1, OutPorts)
                                       ++ ExistingOutports),
+            DecodedMatches = dofl_identifier:decode_matches(Matches),
             {SwitchId, ?OF_VERSION,
-             {Matches,
+             {DecodedMatches,
               [{apply_actions,
                 [{output, OutPort, no_buffer} || OutPort <- NewOutPorts]}],
               %% XXX: should we take priority of existing rule into account?
@@ -382,7 +384,7 @@ tap_flow_rule({SwitchId, InPort, OutPort}) when is_binary(InPort) ->
     OutPortNo = fc_utils:id_to_port_no(OutPort),
     %% First, check if there is already a flow rule with the same
     %% match.
-    ExistingFlowRule =
+    ExistingFlowRules =
         dby:search(
           fun(Id, _NodeMetadata, [], Acc) when Id =:= SwitchId ->
                   %% Starting point. Go on.
@@ -396,69 +398,102 @@ tap_flow_rule({SwitchId, InPort, OutPort}) when is_binary(InPort) ->
                   {continue, Acc};
              (Id, #{<<"type">> := #{value := <<"of_flow_mod">>},
                     <<"matches">> := #{value := Matches},
-                    <<"instructions">> := #{value := Instructions}},
+                    <<"instructions">> := #{value := Instructions}} = FlowMod,
               _, Acc) ->
                   %% A flow rule.
-                  case Matches of
-                      [#{<<"match">> := <<"in_port">>,
-                         <<"value">> := TheInPortNo}] when TheInPortNo =:= InPortNo ->
-                          %% Match the same inport we care about, and nothing else.
-                          %% Check that it outputs to the right port.
-                          case [Instruction ||
-                                   Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
-                              [] ->
-                                  %% No "apply actions" instruction.  Not interesting.
-                                  {skip, Acc};
-                              [#{<<"actions">> := Actions}] ->
-                                  OutPorts = [ThisOutPort ||
-                                                 #{<<"action">> := <<"output">>, <<"port">> := ThisOutPort} <- Actions],
-                                  case lists:member(OutPortNo, OutPorts) of
-                                      true ->
-                                          %% Output port matches as
-                                          %% well.  This is the rule
-                                          %% we want to tap.
-                                          {stop, {Id, Matches, Instructions}};
-                                      false ->
-                                          %% No, the output port doesn't match.
-                                          {skip, Acc}
-                                  end
-                          end;
-                      _ ->
-                          %% Not the rule we're looking for.
+                  case is_flow_rule_from_to(InPortNo, OutPortNo, FlowMod) of
+                      true ->
+                          {continue, [{Id, Matches, Instructions}] ++ Acc};
+                      false ->
+                          %% No, the output port doesn't match.
                           {skip, Acc}
                   end;
              (_, _, _, Acc) ->
                   %% Skip everything else.
                   {skip, Acc}
           end,
-          not_found,
+          [],
           SwitchId,
-          [depth, {max_depth, 2}]),
+          [breadth, {max_depth, 4}]),
     DefaultPriority = 50,
-    case ExistingFlowRule of
-        not_found ->
+    case ExistingFlowRules of
+        [] ->
             io:format(standard_error,
                       "Expected flow rule in switch ~s from port ~p to port ~p, but none found~n",
                       [SwitchId, InPort, OutPort]),
             [];
-        {Cookie, Matches, Instructions} ->
-            ExistingOutports =
-                case [Instruction ||
-                         Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
-                    [] ->
-                        [];
-                    [#{<<"actions">> := Actions}] ->
-                        [TheOutPort || #{<<"action">> := <<"output">>, <<"port">> := TheOutPort} <- Actions]
-                end,
-            NewOutPorts = lists:usort([controller] ++ ExistingOutports),
-            DecodedMatches = lists:map(
-                               fun(#{<<"match">> := Field, <<"value">> := Value}) ->
-                                       {binary_to_atom(Field, utf8), Value}
-                               end, Matches),
-            [{SwitchId, ?OF_VERSION,
-              {DecodedMatches,
-               [{apply_actions,
-                 [{output, TheOutPort, no_buffer} || TheOutPort <- NewOutPorts]}],
-               %% XXX: should we take priority of existing rule into account?
-               [{table_id, 0}, {cookie, Cookie}, {priority, DefaultPriority}]}}]
+        [_|_] ->
+            lists:map(
+              fun({EncodedCookie, Matches, Instructions}) ->
+                      Cookie = decode_cookie(EncodedCookie),
+                      ExistingOutports =
+                          case [Instruction ||
+                                   Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
+                              [] ->
+                                  [];
+                              [#{<<"actions">> := Actions}] ->
+                                  [TheOutPort || #{<<"action">> := <<"output">>, <<"port">> := TheOutPort} <- Actions]
+                          end,
+                      NewOutPorts = lists:usort([controller] ++ ExistingOutports),
+                      DecodedMatches = dofl_identifier:decode_matches(Matches),
+                      {SwitchId, ?OF_VERSION,
+                       {DecodedMatches,
+                        [{apply_actions,
+                          [{output, TheOutPort, no_buffer} || TheOutPort <- NewOutPorts]}],
+                        %% XXX: should we take priority of existing rule into account?
+                        [{table_id, 0}, {cookie, Cookie}, {priority, DefaultPriority}]}}
+              end, ExistingFlowRules)
+    end.
+
+is_flow_rule_from_to(InPortNo, OutPortNo,
+                     #{<<"type">> := #{value := <<"of_flow_mod">>},
+                       <<"matches">> := #{value := Matches},
+                       <<"instructions">> := #{value := Instructions}}) ->
+    %% A flow rule.
+    case lists:any(
+           fun(#{<<"match">> := MatchField,
+                 <<"value">> := MatchValue}) ->
+                   MatchField =:= <<"in_port">> andalso
+                       MatchValue =:= InPortNo
+           end, Matches) of
+        true ->
+            %% Match the same inport we care about.
+            %% Check that it outputs to the right port.
+            case [Instruction ||
+                     Instruction = #{<<"instruction">> := <<"apply_actions">>} <- Instructions] of
+                [] ->
+                    %% No "apply actions" instruction.  Not interesting.
+                    false;
+                [#{<<"actions">> := Actions}] ->
+                    OutPorts = [ThisOutPort ||
+                                   #{<<"action">> := <<"output">>, <<"port">> := ThisOutPort} <- Actions],
+                    case lists:member(OutPortNo, OutPorts) of
+                        true ->
+                            %% Output port matches as
+                            %% well.  This is the rule
+                            %% we want to tap.
+                            true;
+                        false ->
+                            %% No, the output port doesn't match.
+                            false
+                    end
+            end;
+        false ->
+            %% Not the rule we're looking for.
+            false
+    end.
+
+decode_cookie(Bin) when is_binary(Bin) ->
+    %% In Dobby, flow mod cookies are currently encoded as string
+    %% representation of Erlang binaries.
+    case erl_scan:string(binary_to_list(Bin) ++ ".") of
+        {ok, Tokens, _} ->
+            case erl_parse:parse_term(Tokens) of
+                {ok, Cookie} ->
+                    Cookie;
+                {error, ErrorInfo} ->
+                    error({parse_error, ErrorInfo}, [Bin])
+            end;
+        {error, ErrorInfo, _ErrorLocation} ->
+            error({scan_error, ErrorInfo}, [Bin])
     end.
