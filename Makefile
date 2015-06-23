@@ -42,6 +42,8 @@ dialyzer: compile
 dev: compile
 	erl -pa ebin -pa deps/*/ebin deps/loom/simple_ne/apps/*/ebin \
 	-config deps/loom/simple_ne/rel/files/sys.config \
+	-name weave@127.0.0.1 \
+	-setcookie dobby \
 	-eval "{ok, _} = application:ensure_all_started(flowcompiler)"
 
 compile test clean: rebar
