@@ -88,14 +88,14 @@ vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
 flow_rules(Path, Graph, Endpoint1, Endpoint2) ->
     flow_rules(Path, Graph, [], Endpoint1, Endpoint2).
 
-flow_rules([{_, endpoint, _}], _Graph, FlowRules, _Endpoint1, _Endpoint2) ->
+flow_rules([{_, _Endpoint, _}], _Graph, FlowRules, _Endpoint1, _Endpoint2) ->
     %% Nothing more to do.
     FlowRules;
-flow_rules([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
-    flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
-flow_rules([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+flow_rules([{_, of_port, _}, connected_to | [{_, _Endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+    flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
+flow_rules([{_, _Endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
 	    part_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
@@ -199,23 +199,23 @@ encode94(N) ->
             <<(encode94(Quot))/binary, Digit>>
     end.
 
-endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin},
+endpoint_ip_netmask({_Ep, _, #{<<"ip">> := #{value := IpBin},
                                       <<"netmask">> := #{value := NetmaskBin}}}) ->
     {ok, Netmask} = inet:parse_ipv4strict_address(binary_to_list(NetmaskBin)),
     {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
     {Ip, Netmask};
-endpoint_ip_netmask({_Ep, endpoint, #{<<"ip">> := #{value := IpBin}}}) ->
+endpoint_ip_netmask({_Ep, _, #{<<"ip">> := #{value := IpBin}}}) ->
     Netmask = {255, 255, 255, 255},
     {ok, Ip} = inet:parse_ipv4strict_address(binary_to_list(IpBin)),
     {Ip, Netmask};
-endpoint_ip_netmask({_Ep, endpoint, #{}}) ->
+endpoint_ip_netmask({_Ep, _, #{}}) ->
     %% The given endpoint has no specified IP address.
     no_ip_address.
 
 
-is_rest_of_traffic({_Ep, endpoint, #{<<"rest-of-traffic">> := #{value := true}}}) ->
+is_rest_of_traffic({_Ep, _, #{<<"rest-of-traffic">> := #{value := true}}}) ->
     true;
-is_rest_of_traffic({_Ep, endpoint, #{}}) ->
+is_rest_of_traffic({_Ep, _, #{}}) ->
     false.
 
 ip_to_bin({A,B,C,D}) ->
@@ -254,14 +254,14 @@ hub_flow_rules(SourceEndpoint, TargetEndpoints) ->
     Combined = combine_bridge_points(BridgeHere),
     lists:map(fun hub_flow_rule/1, Combined).
 
-bridge_points([{_, endpoint, _}]) ->
+bridge_points([{_, _Endpoint, _}]) ->
     %% Nothing more to do.
     [];
-bridge_points([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
-    bridge_points(Tail);
 bridge_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
-bridge_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
+bridge_points([{_, of_port, _}, connected_to | [{_, _Endpoint, _} | _] = Tail]) ->
+    bridge_points(Tail);
+bridge_points([{_, _Endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
 bridge_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
               part_of | [{Port2, of_port, _} | _] = Tail]) ->
@@ -365,14 +365,14 @@ tap_flow_rules(SourceEndpoint, TargetEndpoint) ->
 
     lists:append(lists:map(fun tap_flow_rule/1, TapPoints)).
 
-tap_points([{_, endpoint, _}]) ->
+tap_points([{_, _Endpoint, _}]) ->
     %% Nothing more to do.
     [];
-tap_points([{_, endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
-    tap_points(Tail);
 tap_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     tap_points(Tail);
-tap_points([{_, of_port, _}, connected_to | [{_, endpoint, _} | _] = Tail]) ->
+tap_points([{_, of_port, _}, connected_to | [{_, _Endpoint, _} | _] = Tail]) ->
+    tap_points(Tail);
+tap_points([{_, _Endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
     tap_points(Tail);
 tap_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
               part_of | [{Port2, of_port, _} | _] = Tail]) ->
