@@ -97,14 +97,14 @@ weave(JSONFileOrNodeName, SourceS, DestinationS, SwitchesS, IsDemo) ->
     io:format("Generated flow rules:\n"),
     lists:foreach(fun print_flow_rule/1, FlowRules),
 
+    DpidFlowRules = lookup_dpids(FlowRules),
     io:format("\n\nFlow rule summary:\n"),
     io:format("~8s ~25s ~3s ~12s ~10s ~4s~n",
               ["Cookie", "Switch datapath id", "In", "Out", "Matches", "Prio"]),
-    lists:foreach(fun flow_rule_summary/1, FlowRules),
+    lists:foreach(fun flow_rule_summary/1, DpidFlowRules),
 
     case IsDemo of
         false ->
-            DpidFlowRules = lookup_dpids(FlowRules),
             lists:foreach(fun connect_to_switch/1, SwitchesS),
             %% Now that we know which switches are affected by the flow rules,
             %% ensure that they are connected.
