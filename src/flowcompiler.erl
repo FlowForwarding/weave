@@ -241,6 +241,7 @@ flow_rule_summary({DpId, _, {Matches, Instr, Opts}}) ->
         false ->
             OutPorts = []
     end,
+    InPortS = io_lib:format("~p", [InPort]),
     OutPortsS = string:join(
                   lists:map(
                     fun(controller) ->
@@ -264,8 +265,8 @@ flow_rule_summary({DpId, _, {Matches, Instr, Opts}}) ->
                    lists:keymember(Key, 1, Matches)]),
     MatchTypesS = string:join(MatchTypes, ","),
     io:format(
-      "~8s ~25s ~3p ~12s ~10s ~4b~n",
-      [Cookie, DpId, InPort, OutPortsS, MatchTypesS, Priority]).
+      "~8s ~25s ~3s ~12s ~10s ~4b~n",
+      [Cookie, DpId, InPortS, OutPortsS, MatchTypesS, Priority]).
 
 tap(JSONFileOrNodeName, SourceS, DestinationS, SwitchesS) ->
     %% If any switches are specified, don't listen for connections.
