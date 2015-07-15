@@ -14,6 +14,7 @@
 % {lm_patchp, HostId, ConnectedPorts}.
 % {lm_vh, PhysicalHost, VirtualHostId, VirtualPorts}.
 % {bound_to, From, To}.
+% {part_of, From, To}.
 
 % helper macros (they could also be functions)
 -define(q(S), [$", S, $"]).
@@ -147,6 +148,9 @@ mk_json([{lm_vh, PhId, VhSuffix, VirtualPorts} | Rest], Acc) ->
 mk_json([{bound_to, From, To} | Rest], Acc) ->
     mk_json(Rest,
         [connection(From, To, "bound_to")] ++ Acc);
+mk_json([{part_of, From, To} | Rest], Acc) ->
+    mk_json(Rest,
+        [connection(From, To, "part_of")] ++ Acc);
 mk_json([Term | _], _) ->
     % invalid Erlang term
     io:format("Unknown term: ~p~n", [Term]),
