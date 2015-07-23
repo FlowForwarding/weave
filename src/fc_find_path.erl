@@ -76,6 +76,9 @@ vertices_edges([Id1, Id2 | _] = [Id1 | Tail], Graph) ->
             <<"port_of">> ->
                 %% Accept "port_of" as synonym for "part_of" for now.
                 <<"part_of">>;
+            <<"connected_to">> ->
+                %% Accept "connected_to" as synonym for "bound_to" for now.
+                <<"bound_to">>;
             _ ->
                 ActualEdgeType
         end,
@@ -91,11 +94,11 @@ flow_rules(Path, Graph, Endpoint1, Endpoint2) ->
 flow_rules([{_, _Endpoint, _}], _Graph, FlowRules, _Endpoint1, _Endpoint2) ->
     %% Nothing more to do.
     FlowRules;
-flow_rules([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+flow_rules([{_, of_port, _}, bound_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
-flow_rules([{_, of_port, _}, connected_to | [{_, _Endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+flow_rules([{_, of_port, _}, bound_to | [{_, _Endpoint, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
-flow_rules([{_, _Endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
+flow_rules([{_, _Endpoint, _}, bound_to | [{_, of_port, _} | _] = Tail], Graph, FlowRules, Endpoint1, Endpoint2) ->
     flow_rules(Tail, Graph, FlowRules, Endpoint1, Endpoint2);
 flow_rules([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
 	    part_of | [{Port2, of_port, _} | _] = Tail], Graph, FlowRules,
@@ -257,11 +260,11 @@ hub_flow_rules(SourceEndpoint, TargetEndpoints) ->
 bridge_points([{_, _Endpoint, _}]) ->
     %% Nothing more to do.
     [];
-bridge_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+bridge_points([{_, of_port, _}, bound_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
-bridge_points([{_, of_port, _}, connected_to | [{_, _Endpoint, _} | _] = Tail]) ->
+bridge_points([{_, of_port, _}, bound_to | [{_, _Endpoint, _} | _] = Tail]) ->
     bridge_points(Tail);
-bridge_points([{_, _Endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+bridge_points([{_, _Endpoint, _}, bound_to | [{_, of_port, _} | _] = Tail]) ->
     bridge_points(Tail);
 bridge_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
               part_of | [{Port2, of_port, _} | _] = Tail]) ->
@@ -368,11 +371,11 @@ tap_flow_rules(SourceEndpoint, TargetEndpoint) ->
 tap_points([{_, _Endpoint, _}]) ->
     %% Nothing more to do.
     [];
-tap_points([{_, of_port, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+tap_points([{_, of_port, _}, bound_to | [{_, of_port, _} | _] = Tail]) ->
     tap_points(Tail);
-tap_points([{_, of_port, _}, connected_to | [{_, _Endpoint, _} | _] = Tail]) ->
+tap_points([{_, of_port, _}, bound_to | [{_, _Endpoint, _} | _] = Tail]) ->
     tap_points(Tail);
-tap_points([{_, _Endpoint, _}, connected_to | [{_, of_port, _} | _] = Tail]) ->
+tap_points([{_, _Endpoint, _}, bound_to | [{_, of_port, _} | _] = Tail]) ->
     tap_points(Tail);
 tap_points([{Port1, of_port, _}, part_of, {SwitchId, of_switch, _SwitchMetadata},
               part_of | [{Port2, of_port, _} | _] = Tail]) ->
