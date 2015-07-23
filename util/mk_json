@@ -121,7 +121,9 @@ mk_json([{lm_ph, PhId, PhysicalPortsAndBridges, VirtualPorts} | Rest], Acc) ->
           [begin
                PpId = PhId ++ "/" ++ PpSuffix,
                VpId = PhId ++ "/" ++ VpSuffix,
-               [identifier(PpId, "lm_pp"),
+               %% TODO: do something more clever to find the interface name
+               PpNumber = lists:dropwhile(fun(C) -> C =< $0 orelse $9 =< C end, PpSuffix),
+               [identifier(PpId, "lm_pp", [{"interface", ?q("eth" ++ PpNumber)}]),
                 connection(PpId, PhId, "part_of"),
                 identifier(VpId, "lm_vp"),
                 connection(PpId, VpId, "part_of")]
