@@ -16,6 +16,8 @@
 % {bound_to, From, To}.
 % {part_of, From, To}.
 
+-mode(compile).
+
 % helper macros (they could also be functions)
 -define(q(S), [$", S, $"]).
 -define(kv(K, V), [K, $:, V, $\n]).
